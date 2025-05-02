@@ -44,5 +44,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 # Ignore Instagram credentials and session
-/settings.json
+# Flask env & session
 /api/.env
+/api/settings.json
+
+# Flutter env
+/.env
+
