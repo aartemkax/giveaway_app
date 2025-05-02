@@ -50,4 +50,4 @@ app.*.map.json
 
 # Flutter env
 /.env
-
+/settings.json
