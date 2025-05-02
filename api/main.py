@@ -1,17 +1,22 @@
+from dotenv import load_dotenv
+load_dotenv() 
+import os
+import time
+import requests
+
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from instagrapi import Client
-import os
-import requests
-import time
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-USERNAME = "qastarlord"
-PASSWORD = "papkyebal123"
-SESSION_FILE = "settings.json"
-AVATAR_DIR = os.path.join(app.static_folder, "avatars")
+# ← зчитуємо з середовища
+USERNAME      = os.getenv("IG_USERNAME")
+PASSWORD      = os.getenv("IG_PASSWORD")
+API_BASE_URL  = os.getenv("API_BASE_URL")  # можна далі використовувати
+SESSION_FILE  = "settings.json"
+AVATAR_DIR    = os.path.join(app.static_folder, "avatars")
 
 # 🔧 Перевірка, що папка існує
 if not os.path.exists(AVATAR_DIR) or not os.path.isdir(AVATAR_DIR):
