@@ -45,108 +45,98 @@ class _GiveawayHomePageState extends State<GiveawayHomePage> {
   Future<void> _fetchFromApi() async {
     setState(() => isLoading = true);
     try {
-      final result = await fetchParticipants(_urlController.text);
+      final result = await fetchParticipants(_urlController.text.trim());
+      // Дедуплікація на рівні даних
+      final unique = result.toSet().toList();
+      if (!mounted) return;
       setState(() {
-        participants = result;
+        participants = unique;
         winners = [];
-        isLoading = false;
       });
     } catch (e) {
-      setState(() => isLoading = false);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Помилка: $e')));
+      ).showSnackBar(SnackBar(content: Text('Помилка: \$e')));
+    } finally {
+      setState(() => isLoading = false);
     }
   }
 
   void _selectWinners() {
     if (participants.isEmpty) return;
-
     final random = Random();
     final count = int.tryParse(_countController.text) ?? 1;
-
-    // **UI-рівень дедуп.**
-    // Перетворюємо список у Set, щоб забрати дублікати,
-    // потім знову в List, перемішуємо і беремо перші count:
-    final unique = participants.toSet().toList();
-    unique.shuffle(random);
-    final selected = unique.take(count.clamp(1, unique.length)).toList();
-
-    setState(() {
-      winners = selected;
-    });
+    final shuffled = List.of(participants)..shuffle(random);
+    final selected =
+        shuffled.take(count.clamp(1, participants.length)).toList();
+    setState(() => winners = selected);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('🎉 Instagram Giveaway')),
-      body: Center(
-        child:
-            isLoading
-                ? const CircularProgressIndicator()
-                : SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      TextField(
-                        controller: _urlController,
-                        decoration: const InputDecoration(
-                          labelText: 'Посилання на пост',
-                          border: OutlineInputBorder(),
-                        ),
+      body:
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      controller: _urlController,
+                      decoration: const InputDecoration(
+                        labelText: 'Посилання на пост',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _countController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Кількість переможців',
-                          border: OutlineInputBorder(),
-                        ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _countController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Кількість переможців',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 20),
-                      if (winners.isNotEmpty)
-                        ...winners.map((winner) {
-                          final avatarUrl =
-                              winner.profilePicUrl.startsWith('http')
-                                  ? winner.profilePicUrl
-                                  : 'http://localhost:5000${winner.profilePicUrl}';
-
-                          return Column(
-                            children: [
-                              CircleAvatar(
-                                radius: 50,
-                                backgroundImage: NetworkImage(avatarUrl),
+                    ),
+                    const SizedBox(height: 20),
+                    if (winners.isNotEmpty)
+                      ...winners.map((winner) {
+                        final avatarUrl =
+                            winner.profilePicUrl.startsWith('http')
+                                ? winner.profilePicUrl
+                                : 'http://127.0.0.1:5000${winner.profilePicUrl}';
+                        return Column(
+                          children: [
+                            CircleAvatar(
+                              radius: 50,
+                              backgroundImage: NetworkImage(avatarUrl),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              winner.username,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                winner.username,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                            ],
-                          );
-                        }).toList(),
-                      ElevatedButton(
-                        onPressed:
-                            participants.isEmpty
-                                ? _fetchFromApi
-                                : _selectWinners,
-                        child: Text(
-                          participants.isEmpty
-                              ? '🔄 Завантажити учасників'
-                              : '🎯 Обрати переможців',
-                        ),
+                            ),
+                            const SizedBox(height: 20),
+                          ],
+                        );
+                      }),
+                    ElevatedButton(
+                      onPressed:
+                          participants.isEmpty ? _fetchFromApi : _selectWinners,
+                      child: Text(
+                        participants.isEmpty
+                            ? '🔄 Завантажити учасників'
+                            : '🎯 Обрати переможців',
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-      ),
+              ),
     );
   }
 }
