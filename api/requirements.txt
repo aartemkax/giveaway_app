@@ -1,0 +1,6 @@
+flask
+flask-cors
+instagrapi
+python-dotenv
+requests
+gunicorn
