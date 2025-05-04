@@ -15,7 +15,7 @@ CORS(app)
 USERNAME      = os.getenv("IG_USERNAME")
 PASSWORD      = os.getenv("IG_PASSWORD")
 API_BASE_URL  = os.getenv("API_BASE_URL")
-SESSION_FILE  = "settings.json"
+SESSION_FILE = os.path.join("api", "session.json")
 AVATAR_DIR    = os.path.join(app.static_folder, "avatars")
 
 # … код створення AVATAR_DIR …
