@@ -21,26 +21,11 @@ AVATAR_DIR    = os.path.join(app.static_folder, "avatars")
 # … код створення AVATAR_DIR …
 
 # 🔐 Сесія Instagrapi з проксі
-proxy_url = os.getenv("PROXY_URL")    # наприклад "http://34.102.48.89:8080"
+proxy_url = os.getenv("PROXY_URL")
 cl = Client(proxy=proxy_url)
 
-if os.path.exists(SESSION_FILE):
-    cl.load_settings(SESSION_FILE)
-    try:
-        cl.get_timeline_feed()
-        print("✅ Сесія активна")
-    except Exception:
-        print("⚠️ Сесія недійсна. Перелогінюємось...")
-        cl.login(USERNAME, PASSWORD)
-        cl.dump_settings(SESSION_FILE)
-else:
-    print("🔵 Немає сесії. Логін...")
-    cl.login(USERNAME, PASSWORD)
-    cl.dump_settings(SESSION_FILE)
-
-@app.route("/")
-def index():
-    return "🎯 API працює! Готовий приймати запити."
+cl.load_settings("session.json")
+print("✅ Loaded Instagram session from session.json")
 
 # Новий маршрут для віддачі аватарок
 @app.route("/api/avatar/<username>")
