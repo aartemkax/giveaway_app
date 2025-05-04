@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-load_dotenv() 
+load_dotenv()
 import os
 import time
 import requests
@@ -14,16 +14,16 @@ CORS(app)
 # ← зчитуємо з середовища
 USERNAME      = os.getenv("IG_USERNAME")
 PASSWORD      = os.getenv("IG_PASSWORD")
-API_BASE_URL  = os.getenv("API_BASE_URL")  # можна далі використовувати
+API_BASE_URL  = os.getenv("API_BASE_URL")
 SESSION_FILE  = "settings.json"
 AVATAR_DIR    = os.path.join(app.static_folder, "avatars")
 
-# 🔧 Перевірка, що папка існує
-if not os.path.exists(AVATAR_DIR) or not os.path.isdir(AVATAR_DIR):
-    os.makedirs(AVATAR_DIR, exist_ok=True)
+# … код створення AVATAR_DIR …
 
-# 🔐 Сесія Instagrapi
-cl = Client()
+# 🔐 Сесія Instagrapi з проксі
+proxy_url = os.getenv("PROXY_URL")    # наприклад "http://34.102.48.89:8080"
+cl = Client(proxy=proxy_url)
+
 if os.path.exists(SESSION_FILE):
     cl.load_settings(SESSION_FILE)
     try:
