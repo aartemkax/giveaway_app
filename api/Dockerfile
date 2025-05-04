@@ -11,9 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4️⃣ Копируем весь код
 COPY . .
 
-# 5️⃣ Открываем порт 8000
+# 5️⃣ Открываем (декларируем) порт 8000
 EXPOSE 8000
 
-# 6️⃣ Запускаем через Gunicorn, биндим на $PORT (Railway подставит нужный)
-CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:$PORT"]
+# 6️⃣ Запуск через gunicorn з підставленням $PORT
+# Використовуємо sh -c, щоб перемінна розгорнулася в контейнері
+CMD ["sh", "-c", "gunicorn main:app --bind 0.0.0.0:${PORT:-8000}"]
+
 
