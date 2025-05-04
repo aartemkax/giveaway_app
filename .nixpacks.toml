@@ -1,0 +1,2 @@
+[phases.setup]
+runtimes = ["python:3.11", "dart:3.7.2"]
