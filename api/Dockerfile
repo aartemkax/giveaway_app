@@ -16,6 +16,7 @@ EXPOSE 8000
 
 # 6️⃣ Запуск через gunicorn з підставленням $PORT
 # Використовуємо sh -c, щоб перемінна розгорнулася в контейнері
-CMD ["sh", "-c", "gunicorn main:app --bind 0.0.0.0:${PORT:-8000}"]
+CMD ["sh","-c","gunicorn main:app --bind 0.0.0.0:$PORT"]
+
 
 
