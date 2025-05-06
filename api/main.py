@@ -9,65 +9,53 @@ import requests
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from instagrapi import Client
+from instagrapi.exceptions import PleaseWaitFewMinutes, ProxyAddressIsBlocked, BadPassword
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-# ← зчитуємо з середовища
-USERNAME     = os.getenv("IG_USERNAME")
-PASSWORD     = os.getenv("IG_PASSWORD")
-API_BASE_URL = os.getenv("API_BASE_URL")
-# під шлях до локального файлу сесії (якщо захочете зберігати файл)
-SESSION_FILE = os.path.join("api", "session.json")
-AVATAR_DIR   = os.path.join(app.static_folder, "avatars")
+USERNAME        = os.getenv("IG_USERNAME")
+PASSWORD        = os.getenv("IG_PASSWORD")
+API_BASE_URL    = os.getenv("API_BASE_URL")
+SESSION_FILE = "session.json"
+AVATAR_DIR      = os.path.join(app.static_folder, "avatars")
 
-# 🔧 Переконаємося, що каталог аватарів існує
 if not os.path.isdir(AVATAR_DIR):
     os.makedirs(AVATAR_DIR, exist_ok=True)
 
-# Ініціалізуємо клієнт Instagrapi (за потреби з проксі)
 proxy_url = os.getenv("PROXY_URL")
 cl = Client(proxy=proxy_url)
 
-# Спроба відновити сесію з ENV змінної SESSION_JSON_B64
 session_b64 = os.getenv("SESSION_JSON_B64")
 if session_b64:
-    raw = base64.b64decode(session_b64)
-    settings = json.loads(raw)
+    settings = json.loads(base64.b64decode(session_b64))
     cl.set_settings(settings)
-    print("✅ Session restored from ENV")
 elif os.path.exists(SESSION_FILE):
     cl.load_settings(SESSION_FILE)
-    print("✅ Session loaded from file")
 else:
-    print("🔵 No session found — logging in")
-    cl.login(USERNAME, PASSWORD)
-    # зберігаємо на диск для локального запуску
-    cl.dump_settings(SESSION_FILE)
+    try:
+        cl.login(USERNAME, PASSWORD)
+        cl.dump_settings(SESSION_FILE)
+    except BadPassword:
+        raise RuntimeError("Invalid Instagram credentials")
 
 @app.route("/")
 def index():
-    return "🎯 API працює! Готовий приймати запити."
+    return "API is running"
 
-# Новий маршрут для віддачі аватарок
 @app.route("/api/avatar/<username>")
 def serve_avatar(username):
-    filename = f"{username}.jpg"
-    file_path = os.path.join(AVATAR_DIR, filename)
+    path = os.path.join(AVATAR_DIR, f"{username}.jpg")
+    if os.path.exists(path):
+        return send_from_directory(AVATAR_DIR, f"{username}.jpg")
+    return jsonify({"error": "not_found"}), 404
 
-    if os.path.exists(file_path):
-        return send_from_directory(AVATAR_DIR, filename)
-    else:
-        return jsonify({"error": "Avatar not found"}), 404
-
-# Основний ендпоінт для отримання учасників
 @app.route("/api/fetch_participants", methods=["POST"])
 def fetch_participants():
-    data = request.get_json() or {}
-    post_url = data.get("post_url")
-
+    payload = request.get_json() or {}
+    post_url = payload.get("post_url")
     if not post_url:
-        return jsonify({"error": "Не вказано post_url"}), 400
+        return jsonify({"error": "missing_post_url"}), 400
 
     try:
         media_id = cl.media_pk_from_url(post_url)
@@ -76,43 +64,45 @@ def fetch_participants():
         participants = []
         seen = set()
 
-        for comment in comments:
-            username = comment.user.username
-            if username in seen:
+        for c in comments:
+            u = c.user.username
+            if u in seen:
                 continue
-            seen.add(username)
+            seen.add(u)
 
-            avatar_url = comment.user.profile_pic_url
-            avatar_path = os.path.join(AVATAR_DIR, f"{username}.jpg")
-            local_url = f"/api/avatar/{username}?t={int(time.time())}"
+            avatar_url = c.user.profile_pic_url
+            local_path = os.path.join(AVATAR_DIR, f"{u}.jpg")
+            local_url = f"/api/avatar/{u}?t={int(time.time())}"
 
-            # якщо файл порожній — видалити
-            if os.path.exists(avatar_path) and os.path.getsize(avatar_path) == 0:
-                os.remove(avatar_path)
+            if os.path.exists(local_path) and os.path.getsize(local_path) == 0:
+                os.remove(local_path)
 
-            # завантажити, якщо нема
-            if not os.path.exists(avatar_path):
+            if not os.path.exists(local_path):
                 try:
-                    resp = requests.get(avatar_url, timeout=5)
-                    if resp.status_code == 200:
-                        with open(avatar_path, 'wb') as f:
-                            f.write(resp.content)
-                        print(f"💾 Saved avatar for @{username}")
+                    r = requests.get(avatar_url, timeout=5)
+                    if r.status_code == 200:
+                        with open(local_path, "wb") as f:
+                            f.write(r.content)
                     else:
-                        print(f"⚠️ Error downloading avatar: {{resp.status_code}}")
                         local_url = "https://i.imgur.com/QCNbOAo.png"
-                except Exception as e:
-                    print(f"❌ Download error: {{e}}")
+                except Exception:
                     local_url = "https://i.imgur.com/QCNbOAo.png"
 
             participants.append({
-                "username": username,
+                "username": u,
                 "profile_pic_url": local_url
             })
 
-        return jsonify({"participants": participants})
+        return jsonify({"participants": participants}), 200
+
+    except PleaseWaitFewMinutes:
+        return jsonify({"error": "rate_limited"}), 429
+    except ProxyAddressIsBlocked:
+        return jsonify({"error": "proxy_blocked"}), 403
+    except BadPassword:
+        return jsonify({"error": "invalid_credentials"}), 401
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "internal_error", "detail": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
