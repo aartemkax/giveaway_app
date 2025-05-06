@@ -7,7 +7,6 @@ import '../services/participants_service.dart';
 import '../widgets/participant_card.dart';
 
 class HomeScreen extends StatefulWidget {
-  // ✏️ Використовуємо super.key замість {Key? key}: super(key: key)
   const HomeScreen({super.key});
 
   @override
@@ -20,10 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
   );
   final _countCtrl = TextEditingController(text: '1');
 
-  // Ми використовуємо обидва поля — participants для зберігання всіх учасників,
-  // winners  — вибраних. Тож ворнінг про unused_field зникне.
   List<Participant> _winners = [];
-
   bool _loading = false;
 
   Future<void> _refreshAndChoose() async {
@@ -41,10 +37,23 @@ class _HomeScreenState extends State<HomeScreen> {
         _winners = unique.take(n.clamp(1, unique.length)).toList();
       });
     } catch (e) {
+      final err = e.toString();
+      String message;
+      if (err.contains("429") || err.contains("rate limit")) {
+        message = "Забагато запитів. Зачекайте кілька хвилин.";
+      } else if (err.contains("ProxyAddressIsBlocked")) {
+        message = "Ваш проксі заблоковано.";
+      } else if (err.contains("BadPassword") || err.contains("invalid")) {
+        message = "Невірні облікові дані Instagram.";
+      } else if (err.contains("Не вказано post_url")) {
+        message = "Не вказано URL поста.";
+      } else {
+        message = "Помилка: $e";
+      }
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Помилка: $e')));
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -54,7 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext ctx) {
     return Scaffold(
-      appBar: AppBar(title: const Text('🎉 Instagram Giveaway')),
+      appBar: AppBar(title: const Text('Instagram Giveaway')),
       body: Center(
         child:
             _loading
@@ -90,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      ..._winners.map((w) => ParticipantCard(w)),
+                      for (final w in _winners) ParticipantCard(w),
                     ],
                   ),
                 ),
