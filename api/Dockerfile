@@ -1,23 +1,22 @@
-# 1️⃣ Базовый образ с нужной версией Python
+# api/Dockerfile
 FROM python:3.11-slim
 
-# 2️⃣ Рабочая директория
+# 1. Папка всередині контейнера
 WORKDIR /app
 
-# 3️⃣ Копируем зависимости и ставим их (кешируется между сборками)
-COPY requirements.txt .
+# 2. Скопіювати сесію та налаштування
 COPY api/session.json ./session.json
+COPY api/settings.json ./settings.json
+
+# 3. Скопіювати requirements та встановити їх
+COPY api/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 4️⃣ Копируем весь код
-COPY . .
+# 4. Скопіювати увесь код бекенду
+COPY api ./
 
-# 5️⃣ Открываем (декларируем) порт 8000
-EXPOSE 8000
+# 5. Відкрити порт 8080 (Railway підставляє $PORT, але зазвичай 8080)
+EXPOSE 8080
 
-# 6️⃣ Запуск через gunicorn з підставленням $PORT
-# Використовуємо sh -c, щоб перемінна розгорнулася в контейнері
-CMD ["sh","-c","gunicorn main:app --bind 0.0.0.0:$PORT"]
-
-
-
+# 6. Запуск gunicorn
+CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:$PORT"]
