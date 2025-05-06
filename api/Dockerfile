@@ -6,6 +6,7 @@ WORKDIR /app
 
 # 3️⃣ Копируем зависимости и ставим их (кешируется между сборками)
 COPY requirements.txt .
+COPY api/session.json ./session.json
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 4️⃣ Копируем весь код
