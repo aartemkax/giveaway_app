@@ -47,6 +47,7 @@ app.*.map.json
 # Flask env & session
 /api/.env
 /api/settings.json
+/api/session.json
 
 # Flutter env
 /.env
