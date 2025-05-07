@@ -17,7 +17,7 @@ CORS(app)
 USERNAME        = os.getenv("IG_USERNAME")
 PASSWORD        = os.getenv("IG_PASSWORD")
 API_BASE_URL    = os.getenv("API_BASE_URL")
-SESSION_FILE = "session.json"
+SESSION_FILE = None
 AVATAR_DIR      = os.path.join(app.static_folder, "avatars")
 
 if not os.path.isdir(AVATAR_DIR):
@@ -28,16 +28,14 @@ cl = Client(proxy=proxy_url)
 
 session_b64 = os.getenv("SESSION_JSON_B64")
 if session_b64:
-    settings = json.loads(base64.b64decode(session_b64))
-    cl.set_settings(settings)
-elif os.path.exists(SESSION_FILE):
-    cl.load_settings(SESSION_FILE)
+    raw = base64.b64decode(session_b64)
+    cl.set_settings(json.loads(raw))
+    print("✅ Session restored from ENV")
 else:
-    try:
-        cl.login(USERNAME, PASSWORD)
-        cl.dump_settings(SESSION_FILE)
-    except BadPassword:
-        raise RuntimeError("Invalid Instagram credentials")
+    print("🔵 No session in ENV — login…")
+    cl.login(USERNAME, PASSWORD)
+    # для локальної зручності:
+    cl.dump_settings("session.json")
 
 @app.route("/")
 def index():
