@@ -7,7 +7,7 @@ import base64
 from instagrapi import Client
 
 # Підвантажуємо .env з кореня проекту (або вкажіть свій шлях, якщо .env в іншій папці)
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 # Ініціалізуємо клієнт
 cl = Client()
