@@ -49,6 +49,7 @@ app.*.map.json
 /api/settings.json
 /api/session.json
 
+
 # Flutter env
 /.env
 /settings.json
