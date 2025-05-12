@@ -1,41 +1,71 @@
+# api/main.py
+
 from dotenv import load_dotenv
-load_dotenv()
+import threading
+import random
+import requests
 import os
 import time
 import json
 import base64
-import requests
 
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from instagrapi import Client
 from instagrapi.exceptions import PleaseWaitFewMinutes, ProxyAddressIsBlocked, BadPassword
 
-app = Flask(__name__, static_folder='static')
+load_dotenv()  # за замовчуванням читає .env в тій же папці або вище
+
+app = Flask(__name__, static_folder="static")
 CORS(app)
 
-USERNAME        = os.getenv("IG_USERNAME")
-PASSWORD        = os.getenv("IG_PASSWORD")
-API_BASE_URL    = os.getenv("API_BASE_URL")
-SESSION_FILE = None
-AVATAR_DIR      = os.path.join(app.static_folder, "avatars")
+USERNAME     = os.getenv("IG_USERNAME")
+PASSWORD     = os.getenv("IG_PASSWORD")
+API_BASE_URL = os.getenv("API_BASE_URL")
+AVATAR_DIR   = os.path.join(app.static_folder, "avatars")
 
-if not os.path.isdir(AVATAR_DIR):
-    os.makedirs(AVATAR_DIR, exist_ok=True)
+os.makedirs(AVATAR_DIR, exist_ok=True)
 
-proxy_url = os.getenv("PROXY_URL")
-cl = Client(proxy=proxy_url)
+# --- ПРОКСІ РОТАЦІЯ (як раніше) ---
 
-session_b64 = os.getenv("SESSION_JSON_B64")
-if session_b64:
-    raw = base64.b64decode(session_b64)
-    cl.set_settings(json.loads(raw))
-    print("✅ Session restored from ENV")
-else:
-    print("🔵 No session in ENV — login…")
-    cl.login(USERNAME, PASSWORD)
-    # для локальної зручності:
-    cl.dump_settings("session.json")
+PROXIES: list[str] = []
+
+def load_proxy_list() -> list[str]:
+    try:
+        resp = requests.get("https://www.proxy-list.download/api/v1/get?type=https", timeout=10)
+        return [line.strip() for line in resp.text.splitlines() if ":" in line]
+    except:
+        return []
+
+def refresh_proxies_periodically(interval_sec: int = 3600):
+    def runner():
+        global PROXIES
+        while True:
+            new = load_proxy_list()
+            if new:
+                PROXIES = new
+                print(f"🔄 Проксі оновлено: {len(PROXIES)} шт.")
+            time.sleep(interval_sec)
+    threading.Thread(target=runner, daemon=True).start()
+
+refresh_proxies_periodically()
+
+# --- СЕСІЯ INSTAGRAPI ---
+
+raw_b64 = os.getenv("SESSION_JSON_B64", "")
+# прибираємо зайві пробіли та нові рядки
+b64 = "".join(raw_b64.split())
+if not b64:
+    raise RuntimeError("Не знайдено SESSION_JSON_B64 в оточенні")
+
+try:
+    decoded = base64.b64decode(b64)
+    session_settings = json.loads(decoded)
+    print("✅ Session settings decoded from ENV")
+except Exception as e:
+    raise RuntimeError(f"Помилка декодування SESSION_JSON_B64: {e}")
+
+# --- РОУТИ ---
 
 @app.route("/")
 def index():
@@ -44,46 +74,48 @@ def index():
 @app.route("/api/avatar/<username>")
 def serve_avatar(username):
     path = os.path.join(AVATAR_DIR, f"{username}.jpg")
-    if os.path.exists(path):
+    if os.path.isfile(path):
         return send_from_directory(AVATAR_DIR, f"{username}.jpg")
     return jsonify({"error": "not_found"}), 404
 
 @app.route("/api/fetch_participants", methods=["POST"])
 def fetch_participants():
-    payload = request.get_json() or {}
-    post_url = payload.get("post_url")
+    data = request.get_json() or {}
+    post_url = data.get("post_url")
     if not post_url:
         return jsonify({"error": "missing_post_url"}), 400
+
+    proxy = random.choice(PROXIES) if PROXIES else None
+    print(f"▶️ Using proxy: {proxy}")
+
+    cl = Client(proxy=proxy)
+    cl.set_settings(session_settings)
 
     try:
         media_id = cl.media_pk_from_url(post_url)
         comments = cl.media_comments(media_id, amount=0)
 
-        participants = []
-        seen = set()
-
+        participants, seen = [], set()
         for c in comments:
             u = c.user.username
-            if u in seen:
-                continue
+            if u in seen: continue
             seen.add(u)
 
             avatar_url = c.user.profile_pic_url
-            local_path = os.path.join(AVATAR_DIR, f"{u}.jpg")
-            local_url = f"/api/avatar/{u}?t={int(time.time())}"
+            local_file = os.path.join(AVATAR_DIR, f"{u}.jpg")
+            local_url  = f"/api/avatar/{u}?t={int(time.time())}"
 
-            if os.path.exists(local_path) and os.path.getsize(local_path) == 0:
-                os.remove(local_path)
-
-            if not os.path.exists(local_path):
+            if os.path.exists(local_file) and os.path.getsize(local_file) == 0:
+                os.remove(local_file)
+            if not os.path.exists(local_file):
                 try:
                     r = requests.get(avatar_url, timeout=5)
                     if r.status_code == 200:
-                        with open(local_path, "wb") as f:
+                        with open(local_file, "wb") as f:
                             f.write(r.content)
                     else:
                         local_url = "https://i.imgur.com/QCNbOAo.png"
-                except Exception:
+                except:
                     local_url = "https://i.imgur.com/QCNbOAo.png"
 
             participants.append({
