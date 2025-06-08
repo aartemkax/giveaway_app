@@ -52,7 +52,28 @@ settings.json
 api/.env
 api/settings.json
 api/session.json
-api/session.b64
+session.b64
+session.json
 
 # статичний сайт (GitHub Pages у docs/)
 docs/assets/.env
+
+# ігнорувати кеш аватарок
+/api/static/avatars/
+
+# ігнорувати локальну папку, що колізить із пакетом Flask-Session
+/flask_session/
+
+# локальні сесії / cookies
+cookies.txt
+/api/session.json
+/session.b64
+
+# Flutter-build output
+build/
+/pubspec.lock
+
+# згенеровані Flutter плагіни (можеш підкорегувати під свій flow)
+linux/flutter/generated_*
+macos/Flutter/GeneratedPluginRegistrant*
+windows/flutter/generated_*

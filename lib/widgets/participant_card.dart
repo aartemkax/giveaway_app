@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/participant.dart';
 import '../utils/constants.dart';
+import 'package:lottie/lottie.dart';
 
 class ParticipantCard extends StatelessWidget {
   final Participant participant;
@@ -8,10 +9,9 @@ class ParticipantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext ctx) {
-    final url =
-        participant.profilePicUrl.startsWith('http')
-            ? participant.profilePicUrl
-            : '$apiBaseUrl${participant.profilePicUrl}';
+    final url = participant.profilePicUrl.startsWith('http')
+        ? participant.profilePicUrl
+        : '$apiBaseUrl${participant.profilePicUrl}';
 
     return Column(
       children: [

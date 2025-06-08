@@ -1,0 +1,177 @@
+{
+  "@@locale": "en",
+
+  "home_title": "Instagram Giveaway",
+  "@home_title": {
+    "description": "AppBar title on home screen"
+  },
+
+  "invalid_credentials": "Invalid username or password",
+  "@invalid_credentials": {
+    "description": "LoginScreen: placeholder before real substitution (не використовується напряму)."
+  },
+
+  "login_button": "Log in",
+  "@login_button": {
+    "description": "Text on the login button"
+  },
+
+  "login_title": "Instagram Login",
+  "@login_title": {
+    "description": "AppBar title on login screen"
+  },
+
+  "no_participants": "No participants selected",
+  "@no_participants": {
+    "description": "Message shown when there are no selected participants"
+  },
+
+  "ok_button": "OK",
+  "@ok_button": {
+    "description": "Text on confirmation button"
+  },
+
+  "password_label": "Password",
+  "@password_label": {
+    "description": "Label for password TextField"
+  },
+
+  "participants_title": "Giveaway participants",
+  "@participants_title": {
+    "description": "AppBar title on participants screen"
+  },
+
+  "post_url_label": "Post URL",
+  "@post_url_label": {
+    "description": "Label for the post URL text field"
+  },
+
+  "refresh_and_choose": "Refresh & choose",
+  "@refresh_and_choose": {
+    "description": "Label on the button to refresh participants and pick winners"
+  },
+
+  "remind_enter_credentials": "Please enter username and password",
+  "@remind_enter_credentials": {
+    "description": "LoginScreen: shown when username/password fields are empty"
+  },
+
+  "username_label": "Username",
+  "@username_label": {
+    "description": "Label for username TextField"
+  },
+
+  "winners_count_label": "Number of winners",
+  "@winners_count_label": {
+    "description": "Label for the number-of-winners text field"
+  },
+
+  "validation_length": "Login ≥ {minLogin} chars, password ≥ {minPass} chars",
+  "@validation_length": {
+    "description": "Shown when username/password too short",
+    "placeholders": {
+      "minLogin": {},
+      "minPass": {}
+    }
+  },
+
+  "error_generic": "Error: {error}",
+  "@error_generic": {
+    "description": "Generic fallback for unknown error codes",
+    "placeholders": {
+      "error": {}
+    }
+  },
+
+  "error_internal_error": "Server error. Please try again later.",
+  "@error_internal_error": {
+    "description": "Generic fallback for unexpected server errors (HTTP 500)"
+  },
+
+  "error_instagram_challenge": "Additional Instagram verification required.",
+  "@error_instagram_challenge": {
+    "description": "Shown when backend returns instagram_challenge (HTTP 412)"
+  },
+
+  "error_invalid_credentials": "Invalid username or password.",
+  "@error_invalid_credentials": {
+    "description": "Shown when backend returns invalid_credentials (HTTP 401)"
+  },
+
+  "error_invalid_post_url": "Invalid post URL. Should look like https://www.instagram.com/p/ABC123/",
+  "@error_invalid_post_url": {
+    "description": "Shown when the given post_url is malformed (HTTP 400)"
+  },
+
+  "error_login_required": "Please log in first.",
+  "@error_login_required": {
+    "description": "Shown when backend returns login_required (HTTP 401)"
+  },
+
+  "error_post_unavailable": "Post not found or unavailable.",
+  "@error_post_unavailable": {
+    "description": "Shown when media_pk_from_url fails (post missing/unavailable, HTTP 400)"
+  },
+
+  "error_proxy_blocked": "Your proxy is blocked.",
+  "@error_proxy_blocked": {
+    "description": "Shown when backend returns proxy_blocked (HTTP 403)"
+  },
+
+  "error_rate_limited": "Too many requests. Please wait a few minutes.",
+  "@error_rate_limited": {
+    "description": "Shown when Instagram rate-limit is hit (HTTP 429)"
+  },
+
+  "error_session_expired": "Session expired. Please log in again.",
+  "@error_session_expired": {
+    "description": "Shown when backend detail=\"session_expired\" (HTTP 401)"
+  },
+
+  "error_validation_error": "Username ≥ 3 chars, password ≥ 6 chars.",
+  "@error_validation_error": {
+    "description": "Shown when backend returns validation_error (HTTP 400)"
+  },
+
+  "error_invalid_winner_count": "Number of winners must be at least 1",
+  "@error_invalid_winner_count": {
+    "description": "Shown when the user sets Number of winners to 0 or negative"
+  },
+
+  "error_unknown": "Unknown error",
+  "@error_unknown": {
+    "description": "Generic fallback when backend returns something not recognized"
+  },
+
+  "error_instagram_challenge": "Additional Instagram verification required.",
+  "@error_instagram_challenge": {
+    "description": "Shown when backend returns instagram_challenge without further detail"
+  },
+
+  "error_instagram_submit_phone": "Instagram requires you to add a phone number. Open Instagram to continue.",
+  "@error_instagram_submit_phone": {
+    "description": "Shown when backend detail == \"submit_phone\""
+  },
+
+  "error_generic": "Error: {error}",
+  "@error_generic": {
+    "description": "Generic error fallback when no other match",
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "error_internal_error": "Server error. Please try again later.",
+  "@error_internal_error": {
+  "description": "Generic fallback for unexpected server errors (HTTP 500)"
+  },
+
+  "open_instagram_button": "Open Instagram",
+  "@open_instagram_button": {
+    "description": "Text on the button that launches Instagram or fallback URL"
+  },
+
+  "open_instagram_button": "Open Instagram",
+  "@open_instagram_button": {
+    "description": "Текст на кнопці, щоб відкрити Instagram"
+  }
+}

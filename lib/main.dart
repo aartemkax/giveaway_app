@@ -1,24 +1,47 @@
+// lib/main.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'screens/home_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:giveaway_app/l10n/app_localizations.dart';
+import 'screens/login_screen.dart';
+import 'screens/participants_screen.dart';
 
 Future<void> main() async {
-  // Щоб Flutter ініціалізував потрібні binding перед асинхронною роботою
   WidgetsFlutterBinding.ensureInitialized();
-  // Завантажуємо файл .env (із кореня проекту)
   await dotenv.load(fileName: ".env");
-  runApp(const GiveawayApp());
+  final prefs = await SharedPreferences.getInstance();
+  final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+  runApp(MyApp(initialRoute: isLoggedIn ? '/participants' : '/login'));
 }
 
-class GiveawayApp extends StatelessWidget {
-  const GiveawayApp({super.key});
+class MyApp extends StatefulWidget {
+  final String initialRoute;
+  const MyApp({required this.initialRoute, super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  Locale _locale = const Locale('uk');
+
+  void _switchLocale(Locale locale) => setState(() => _locale = locale);
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Instagram Giveaway',
-      theme: ThemeData(useMaterial3: true),
-      home: const HomeScreen(),
+      locale: _locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      // видаляємо `home:` якщо був
+      initialRoute: widget.initialRoute,
+      routes: {
+        '/': (ctx) => LoginScreen(onLocaleChanged: _switchLocale),
+        '/login': (ctx) => LoginScreen(onLocaleChanged: _switchLocale),
+        '/participants': (ctx) =>
+            ParticipantsScreen(onLocaleChanged: _switchLocale),
+      },
     );
   }
 }

@@ -1,12 +1,15 @@
+# Dockerfile (в корені проєкту)
 FROM python:3.11-slim
 WORKDIR /app
 
-# dependencies
-COPY api/requirements.txt ./requirements.txt
+# 1) Беремо єдиний requirements.txt з кореня
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# весь бекенд
+# 2) Копіюємо увесь бекенд з папки api/ у /app
 COPY api/ . 
 
 EXPOSE 8080
-CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:$PORT"]
+
+# 3) Запускаємо Gunicorn так, щоб слухав порт 8080
+CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:8080"]

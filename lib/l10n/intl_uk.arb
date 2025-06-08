@@ -1,0 +1,178 @@
+{
+  "@@locale": "uk",
+
+  "home_title": "Instagram Giveaway",
+  "@home_title": {
+    "description": "Заголовок AppBar на головному екрані"
+  },
+
+  "invalid_credentials": "Неправильний логін або пароль",
+  "@invalid_credentials": {
+    "description": "LoginScreen: placeholder перед справжньою заміною (не використовується напряму)."
+  },
+
+  "login_button": "Увійти",
+  "@login_button": {
+    "description": "Текст на кнопці входу"
+  },
+
+  "login_title": "Вхід в Instagram",
+  "@login_title": {
+    "description": "Заголовок AppBar на екрані входу"
+  },
+
+  "no_participants": "Немає обраних учасників",
+  "@no_participants": {
+    "description": "Повідомлення, коли немає обраних учасників"
+  },
+
+  "ok_button": "ОК",
+  "@ok_button": {
+    "description": "Текст на кнопці підтвердження"
+  },
+
+  "password_label": "Пароль",
+  "@password_label": {
+    "description": "Напис-підказка для поля вводу паролю"
+  },
+
+  "participants_title": "Учасники Giveaway",
+  "@participants_title": {
+    "description": "Заголовок AppBar на екрані учасників"
+  },
+
+  "post_url_label": "Посилання на пост",
+  "@post_url_label": {
+    "description": "Напис для поля вводу посилання на пост"
+  },
+
+  "refresh_and_choose": "Оновити й обрати",
+  "@refresh_and_choose": {
+    "description": "Напис на кнопці для оновлення та вибору переможців"
+  },
+
+  "remind_enter_credentials": "Будь ласка, введіть логін і пароль",
+  "@remind_enter_credentials": {
+    "description": "LoginScreen: показувати, коли поля порожні"
+  },
+
+  "username_label": "Логін",
+  "@username_label": {
+    "description": "Напис-підказка для поля вводу логіну"
+  },
+
+  "winners_count_label": "Кількість переможців",
+  "@winners_count_label": {
+    "description": "Напис для поля вводу кількості переможців"
+  },
+
+  "validation_length": "Логін ≥ {minLogin} символів, пароль ≥ {minPass} символів",
+  "@validation_length": {
+    "description": "Повідомлення, коли логін/пароль занадто короткі",
+    "placeholders": {
+      "minLogin": {},
+      "minPass": {}
+    }
+  },
+
+  "error_generic": "Помилка: {error}",
+  "@error_generic": {
+    "description": "Універсальний fallback для невідомих кодів помилок",
+    "placeholders": {
+      "error": {}
+    }
+  },
+
+  "error_internal_error": "Помилка сервера. Спробуйте пізніше.",
+  "@error_internal_error": {
+    "description": "Універсальний текст, коли сервер повертає internal_error (500)"
+  },
+
+  "error_instagram_challenge": "Потрібна додаткова верифікація в Instagram.",
+  "@error_instagram_challenge": {
+    "description": "Показувати, коли бекенд повертає instagram_challenge (412)"
+  },
+
+  "error_invalid_credentials": "Неправильний логін або пароль.",
+  "@error_invalid_credentials": {
+    "description": "Показувати, коли бекенд повернув invalid_credentials (401)"
+  },
+
+  "error_invalid_post_url": "Неправильне посилання на пост. Має вигляд https://www.instagram.com/p/ABC123/",
+  "@error_invalid_post_url": {
+    "description": "Показувати, коли post_url невірний (400)"
+  },
+
+  "error_login_required": "Потрібно увійти в систему.",
+  "@error_login_required": {
+    "description": "Показувати, коли бекенд повернув login_required (401)"
+  },
+
+  "error_post_unavailable": "Пост не знайдено або недоступний.",
+  "@error_post_unavailable": {
+    "description": "Показувати, коли media_pk_from_url не знайшов пост (400)"
+  },
+
+  "error_proxy_blocked": "Ваш проксі заблоковано.",
+  "@error_proxy_blocked": {
+    "description": "Показувати, коли бекенд повернув proxy_blocked (403)"
+  },
+
+  "error_rate_limited": "Забагато запитів. Зачекайте кілька хвилин.",
+  "@error_rate_limited": {
+    "description": "Показувати, коли Instagram rate-limit (429)"
+  },
+
+  "error_session_expired": "Сесія закінчилася. Увійдіть знову.",
+  "@error_session_expired": {
+    "description": "Показувати, коли backend detail=\"session_expired\" (401)"
+  },
+
+  "error_validation_error": "Логін ≥ 3 символи, пароль ≥ 6 символів.",
+  "@error_validation_error": {
+    "description": "Показувати, коли бекенд повернув validation_error (400)"
+  },
+
+  "error_invalid_winner_count": "Кількість переможців повинна бути не менше 1",
+  "@error_invalid_winner_count": {
+    "description": "Показувати, якщо користувач ввів 0 чи менше в полі кількості переможців"
+  },
+  
+  "error_unknown": "Невідома помилка",
+  "@error_unknown": {
+    "description": "Універсальний випадок для невідомих помилок з бекенду"
+  },
+
+  "error_instagram_challenge": "Потрібна додаткова верифікація в Instagram.",
+  "@error_instagram_challenge": {
+    "description": "Показати, коли бекенд повернув instagram_challenge без detail"
+  },
+
+  "error_instagram_submit_phone": "Instagram вимагає додати номер телефону. Відкрийте Instagram, щоб продовжити.",
+  "@error_instagram_submit_phone": {
+    "description": "Показати при detail == \"submit_phone\""
+  },
+
+  "error_generic": "Помилка: {error}",
+  "@error_generic": {
+    "description": "Універсальне повідомлення про помилку",
+    "placeholders": {
+      "error": {}
+    }
+  },
+
+  "error_internal_error": "Помилка сервера. Спробуйте ще раз пізніше.",
+  "@error_internal_error": {
+    "description": "Універсальне повідомлення при помилці сервера (HTTP 500)"
+  },
+
+  "open_instagram_button": "Відкрити Instagram",
+  "@open_instagram_button": {
+    "description": "Text on the button that launches Instagram or fallback URL"
+  },
+
+  "open_instagram_button": "Відкрити Instagram",
+  "@open_instagram_button": {
+    "description": "Текст на кнопці, щоб відкрити Instagram"
+  }
+}
