@@ -255,5 +255,21 @@ def debug_session():
 def healthz():
     return jsonify({"ok": True}), 200
 
+# ── Root (landing) ─────────────────────────────────────────────────────────────
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({
+        "ok": True,
+        "service": "api",
+        "routes": [
+            "/healthz",
+            "/api/login",
+            "/api/fetch_participants_async",
+            "/api/job_status/<id>",
+            "/api/job_result/<id>",
+            "/api/debug_session"
+        ]
+    }), 200
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)
