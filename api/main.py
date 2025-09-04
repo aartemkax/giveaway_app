@@ -257,17 +257,18 @@ def healthz():
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
-def root():
+def index():
     return jsonify({
-        "ok": True,
-        "service": "api",
-        "routes": [
+        "service": "giveaway_api",
+        "endpoints": [
             "/healthz",
             "/api/login",
+            "/api/collect_device_geo",
+            "/api/device_report",
             "/api/fetch_participants_async",
-            "/api/job_status/<id>",
-            "/api/job_result/<id>",
-            "/api/debug_session"
+            "/api/job_status/<job_id>",
+            "/api/job_result/<job_id>",
+            "/api/debug_session",
         ]
     }), 200
 
