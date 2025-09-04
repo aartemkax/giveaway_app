@@ -9,9 +9,15 @@ import 'screens/participants_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: ".env");
+
+  // 1) Завантажуємо .env з кореня проєкту
+  await dotenv.load(fileName: '.env');
+
+  // 2) Перевіряємо, чи був раніше логін
   final prefs = await SharedPreferences.getInstance();
   final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+
+  // 3) Стартуємо додаток
   runApp(MyApp(initialRoute: isLoggedIn ? '/participants' : '/login'));
 }
 
@@ -34,7 +40,7 @@ class _MyAppState extends State<MyApp> {
       locale: _locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
-      // видаляємо `home:` якщо був
+      onGenerateTitle: (context) => AppLocalizations.of(context)!.app_name,
       initialRoute: widget.initialRoute,
       routes: {
         '/': (ctx) => LoginScreen(onLocaleChanged: _switchLocale),

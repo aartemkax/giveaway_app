@@ -59,7 +59,7 @@ session.json
 docs/assets/.env
 
 # ігнорувати кеш аватарок
-/api/static/avatars/
+# api/static/avatars/
 
 # ігнорувати локальну папку, що колізить із пакетом Flask-Session
 /flask_session/
@@ -77,3 +77,32 @@ build/
 linux/flutter/generated_*
 macos/Flutter/GeneratedPluginRegistrant*
 windows/flutter/generated_*
+
+# ігноруємо всі файли в flask_helpers
+/api/units/flask_helpers/*
+# але беремо в репо тільки .py
+!/api/units/flask_helpers/*.py
+
+# Python/Flask
+api/.venv/
+**/__pycache__/
+**/*.py[cod]
+api/flask_session/
+api/*.db
+api/*.sqlite*
+api/*.log
+
+# Secrets / токени / cookies
+.env
+api/.env
+cookie.txt
+api/cookie.txt
+*.pem
+*.key
+
+# Flutter
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages

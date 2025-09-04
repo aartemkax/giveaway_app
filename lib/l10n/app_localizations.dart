@@ -100,17 +100,17 @@ abstract class AppLocalizations {
     Locale('uk')
   ];
 
+  /// System app name (task switcher, web tab)
+  ///
+  /// In en, this message translates to:
+  /// **'Instagram Giveaway'**
+  String get app_name;
+
   /// AppBar title on home screen
   ///
   /// In en, this message translates to:
   /// **'Instagram Giveaway'**
   String get home_title;
-
-  /// LoginScreen: placeholder before real substitution (не використовується напряму).
-  ///
-  /// In en, this message translates to:
-  /// **'Invalid username or password'**
-  String get invalid_credentials;
 
   /// Text on the login button
   ///
@@ -124,7 +124,7 @@ abstract class AppLocalizations {
   /// **'Instagram Login'**
   String get login_title;
 
-  /// Message shown when there are no selected participants
+  /// Shown when there are no selected participants
   ///
   /// In en, this message translates to:
   /// **'No participants selected'**
@@ -154,13 +154,13 @@ abstract class AppLocalizations {
   /// **'Post URL'**
   String get post_url_label;
 
-  /// Label on the button to refresh participants and pick winners
+  /// Button to refresh participants and pick winners
   ///
   /// In en, this message translates to:
   /// **'Refresh & choose'**
   String get refresh_and_choose;
 
-  /// LoginScreen: shown when username/password fields are empty
+  /// Shown when username/password fields are empty
   ///
   /// In en, this message translates to:
   /// **'Please enter username and password'**
@@ -190,85 +190,85 @@ abstract class AppLocalizations {
   /// **'Error: {error}'**
   String error_generic(Object error);
 
-  /// Generic fallback for unexpected server errors (HTTP 500)
+  /// Unexpected server errors (HTTP 500)
   ///
   /// In en, this message translates to:
   /// **'Server error. Please try again later.'**
   String get error_internal_error;
 
-  /// Shown when backend returns instagram_challenge without further detail
+  /// Backend returns instagram_challenge (HTTP 412)
   ///
   /// In en, this message translates to:
   /// **'Additional Instagram verification required.'**
   String get error_instagram_challenge;
 
-  /// Shown when backend returns invalid_credentials (HTTP 401)
+  /// Backend returns invalid_credentials (HTTP 401)
   ///
   /// In en, this message translates to:
   /// **'Invalid username or password.'**
   String get error_invalid_credentials;
 
-  /// Shown when the given post_url is malformed (HTTP 400)
+  /// Malformed post_url (HTTP 400)
   ///
   /// In en, this message translates to:
   /// **'Invalid post URL. Should look like https://www.instagram.com/p/ABC123/'**
   String get error_invalid_post_url;
 
-  /// Shown when backend returns login_required (HTTP 401)
+  /// Backend returns login_required (HTTP 401)
   ///
   /// In en, this message translates to:
   /// **'Please log in first.'**
   String get error_login_required;
 
-  /// Shown when media_pk_from_url fails (post missing/unavailable, HTTP 400)
+  /// media_pk_from_url fails / post missing (HTTP 400)
   ///
   /// In en, this message translates to:
   /// **'Post not found or unavailable.'**
   String get error_post_unavailable;
 
-  /// Shown when backend returns proxy_blocked (HTTP 403)
+  /// Backend returns proxy_blocked (HTTP 403)
   ///
   /// In en, this message translates to:
   /// **'Your proxy is blocked.'**
   String get error_proxy_blocked;
 
-  /// Shown when Instagram rate-limit is hit (HTTP 429)
+  /// Instagram rate-limit hit (HTTP 429)
   ///
   /// In en, this message translates to:
   /// **'Too many requests. Please wait a few minutes.'**
   String get error_rate_limited;
 
-  /// Shown when backend detail="session_expired" (HTTP 401)
+  /// detail == "session_expired" (HTTP 401)
   ///
   /// In en, this message translates to:
   /// **'Session expired. Please log in again.'**
   String get error_session_expired;
 
-  /// Shown when backend returns validation_error (HTTP 400)
+  /// Backend returns validation_error (HTTP 400)
   ///
   /// In en, this message translates to:
   /// **'Username ≥ 3 chars, password ≥ 6 chars.'**
   String get error_validation_error;
 
-  /// Shown when the user sets Number of winners to 0 or negative
+  /// User sets winners to 0 or negative
   ///
   /// In en, this message translates to:
   /// **'Number of winners must be at least 1'**
   String get error_invalid_winner_count;
 
-  /// Generic fallback when backend returns something not recognized
+  /// Fallback when backend returns something unrecognized
   ///
   /// In en, this message translates to:
   /// **'Unknown error'**
   String get error_unknown;
 
-  /// Shown when backend detail == "submit_phone"
+  /// detail == "submit_phone"
   ///
   /// In en, this message translates to:
   /// **'Instagram requires you to add a phone number. Open Instagram to continue.'**
   String get error_instagram_submit_phone;
 
-  /// Текст на кнопці, щоб відкрити Instagram
+  /// Button that launches Instagram or fallback URL
   ///
   /// In en, this message translates to:
   /// **'Open Instagram'**

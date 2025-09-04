@@ -1,15 +1,11 @@
 {
   "@@locale": "uk",
 
-  "home_title": "Instagram Giveaway",
-  "@home_title": {
-    "description": "Заголовок AppBar на головному екрані"
-  },
+  "app_name": "Instagram Giveaway",
+  "@app_name": { "description": "System app name (task switcher, web tab)" },
 
-  "invalid_credentials": "Неправильний логін або пароль",
-  "@invalid_credentials": {
-    "description": "LoginScreen: placeholder перед справжньою заміною (не використовується напряму)."
-  },
+  "home_title": "Instagram Giveaway",
+  "@home_title": { "description": "AppBar title on home screen" },
 
   "login_button": "Увійти",
   "@login_button": {

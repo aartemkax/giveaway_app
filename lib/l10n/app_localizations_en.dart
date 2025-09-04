@@ -9,10 +9,10 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get home_title => 'Instagram Giveaway';
+  String get app_name => 'Instagram Giveaway';
 
   @override
-  String get invalid_credentials => 'Invalid username or password';
+  String get home_title => 'Instagram Giveaway';
 
   @override
   String get login_button => 'Log in';

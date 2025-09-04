@@ -1,80 +1,145 @@
 // lib/services/participants_service.dart
-
+import 'dart:async';
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:http/browser_client.dart';
+import 'package:http/http.dart' as http;
+
 import '../models/participant.dart';
 import '../utils/constants.dart';
 import '../utils/api_exception.dart';
+import '../utils/device_info_util.dart';
 
-// BrowserClient з включеними кукі
-final _webClient = BrowserClient()..withCredentials = true;
+class ParticipantsService {
+  final _client = BrowserClient()..withCredentials = true;
 
-Future<List<Participant>> fetchParticipants(String postUrl) async {
-  final uri =
-      fetchUri; // має бути типу Uri.parse("http://localhost:5000/api/fetch_participants")
-  final resp = await _webClient.post(
-    uri,
-    headers: {'Content-Type': 'application/json'},
-    body: jsonEncode({'post_url': postUrl.trim()}),
-  );
-
-  if (resp.statusCode == 200) {
-    final data = jsonDecode(resp.body) as Map<String, dynamic>;
-
-    // Якщо ключ "participants" не містить List — повертаємо порожній список
-    if (data['participants'] is! List) {
-      return <Participant>[];
+  Future<List<Participant>> fetchParticipants(
+    String postUrl, {
+    required BuildContext context,
+  }) async {
+    // 0) Нормалізуємо URL (бек теж підправляє, але не завадить)
+    postUrl = postUrl.trim();
+    if (postUrl.isNotEmpty && !postUrl.endsWith('/')) {
+      postUrl = '$postUrl/';
     }
 
-    // Отримаємо сирий список і відфільтруємо лише Map<String, dynamic>
-    final rawList = (data['participants'] as List)
-        .whereType<Map<String, dynamic>>()
-        .toList();
-
-    if (rawList.isEmpty) {
-      return <Participant>[];
+    // 1) Device & geo з таймаутом і фолбеком
+    debugPrint('🟦 [fetchParticipants] collecting device info...');
+    Map<String, dynamic> deviceInfo;
+    String? region;
+    try {
+      deviceInfo = await DeviceInfoUtil.collect(context: context)
+          .timeout(const Duration(seconds: 6));
+      region = deviceInfo['region'];
+      debugPrint('🟩 [fetchParticipants] device collected, region=$region');
+    } catch (e, st) {
+      debugPrint('🟥 [fetchParticipants] device collect failed: $e\n$st');
+      // Не ламаємо флоу — шлемо мінімум
+      deviceInfo = <String, dynamic>{'source': 'fallback'};
+      region = null;
     }
 
-    // Конвертуємо в Participant
-    return rawList.map(Participant.fromJson).toList();
+    // 2) Старт асинхронної задачі
+    final uriStart = Uri.parse('$apiBaseUrl/api/fetch_participants_async');
+    final payload = {
+      'post_url': postUrl,
+      'device_info': deviceInfo,
+      'region': region,
+    };
+
+    debugPrint('🟦 [fetchParticipants] POST $uriStart');
+    debugPrint('🟦 [fetchParticipants] body: ${jsonEncode(payload)}');
+
+    http.Response startResp;
+    try {
+      startResp = await _client.post(
+        uriStart,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+    } catch (e) {
+      debugPrint('🟥 [fetchParticipants] network error on start: $e');
+      throw ApiException('internal_error',
+          detail: 'network_error_on_start: $e');
+    }
+
+    debugPrint(
+        '🟨 [fetchParticipants] start status=${startResp.statusCode} body=${startResp.body}');
+    if (startResp.statusCode != 202) {
+      final err = _safeJson(startResp.body);
+      throw ApiException(
+        (err['error'] as String?) ?? 'unknown_error',
+        detail: err['detail'] as String?,
+      );
+    }
+
+    final jobId = (jsonDecode(startResp.body) as Map<String, dynamic>)['job_id']
+        as String;
+    debugPrint('🟩 [fetchParticipants] job_id=$jobId');
+
+    // 3) Поллінг статусу
+    final statusUri = Uri.parse('$apiBaseUrl/api/job_status/$jobId');
+    String status = '';
+    do {
+      await Future.delayed(const Duration(seconds: 2));
+      debugPrint('🟦 [fetchParticipants] GET $statusUri');
+      http.Response statusResp;
+      try {
+        statusResp = await _client.get(statusUri);
+      } catch (e) {
+        debugPrint('🟥 [fetchParticipants] network error on status: $e');
+        throw ApiException('internal_error',
+            detail: 'network_error_on_status: $e');
+      }
+      debugPrint(
+          '🟨 [fetchParticipants] status code=${statusResp.statusCode} body=${statusResp.body}');
+      if (statusResp.statusCode != 200) {
+        throw ApiException('unknown_error', detail: 'Cannot fetch job status');
+      }
+      status = ((jsonDecode(statusResp.body) as Map<String, dynamic>)['status']
+              as String)
+          .toLowerCase();
+    } while (status != 'finished');
+
+    // 4) Результат
+    final resultUri = Uri.parse('$apiBaseUrl/api/job_result/$jobId');
+    debugPrint('🟦 [fetchParticipants] GET $resultUri');
+    http.Response resultResp;
+    try {
+      resultResp = await _client.get(resultUri);
+    } catch (e) {
+      debugPrint('🟥 [fetchParticipants] network error on result: $e');
+      throw ApiException('internal_error',
+          detail: 'network_error_on_result: $e');
+    }
+    debugPrint(
+        '🟨 [fetchParticipants] result code=${resultResp.statusCode} body=${resultResp.body}');
+
+    if (resultResp.statusCode == 200) {
+      final data = jsonDecode(resultResp.body) as Map<String, dynamic>;
+      final raw = data['participants'];
+      if (raw is! List) return <Participant>[];
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(Participant.fromJson)
+          .toList();
+    } else {
+      final err = _safeJson(resultResp.body);
+      throw ApiException(
+        (err['error'] as String?) ?? 'unknown_error',
+        detail: err['detail'] as String?,
+      );
+    }
   }
 
-  // Обробка помилкових статусів
-  String code = 'unknown_error';
-  String message = 'Невідома помилка';
-
-  try {
-    final data = jsonDecode(resp.body) as Map<String, dynamic>;
-    code = data['error'] as String? ?? code;
-    message = data['message'] as String? ?? message;
-  } catch (_) {
-    // Якщо тіло не JSON — лишаємо дефолтні code/message
-  }
-
-  switch (resp.statusCode) {
-    case 400:
-      if (code == 'post_unavailable') {
-        throw ApiException('post_unavailable', detail: message);
-      }
-      throw ApiException('invalid_post_url', detail: message);
-
-    case 401:
-      throw ApiException('login_required', detail: message);
-
-    case 403:
-      throw ApiException('proxy_blocked', detail: message);
-
-    case 429:
-      throw ApiException('rate_limited', detail: message);
-
-    case 412:
-      throw ApiException(code, detail: message);
-
-    default:
-      if (code == 'unknown_error') {
-        throw ApiException('unknown_error', detail: message);
-      } else {
-        throw ApiException(code, detail: message);
-      }
+  Map<String, dynamic> _safeJson(String body) {
+    try {
+      final m = jsonDecode(body);
+      return (m is Map<String, dynamic>) ? m : <String, dynamic>{'raw': m};
+    } catch (_) {
+      return <String, dynamic>{'raw': body};
+    }
   }
 }

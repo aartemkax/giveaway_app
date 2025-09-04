@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:lottie/lottie.dart';
 import '../utils/api_exception.dart';
+// Тепер цей імпорт справді потрібен
 import '../services/participants_service.dart';
 import '../models/participant.dart';
 import '../widgets/participant_card.dart';
@@ -25,6 +26,9 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   final TextEditingController _urlCtrl = TextEditingController();
   final TextEditingController _countCtrl = TextEditingController(text: '1');
 
+  // Створюємо сервіс
+  final _participantsService = ParticipantsService();
+
   bool _loading = false;
   List<Participant> _participants = [];
   bool _showCelebration = false;
@@ -41,25 +45,25 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     final n = int.tryParse(_countCtrl.text.trim()) ?? 0;
     if (n < 1) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(loc.error_invalid_winner_count)),
-      );
+          SnackBar(content: Text(loc.error_invalid_winner_count)));
       return;
     }
 
     setState(() => _loading = true);
 
     try {
-      // 1) Отримуємо всіх коментаторів, унікалізуємо, перемішуємо
-      final unique =
-          (await fetchParticipants(_urlCtrl.text.trim())).toSet().toList();
+      // Викликаємо метод із сервісу
+      final unique = (await _participantsService
+              .fetchParticipants(_urlCtrl.text.trim(), context: context))
+          .toSet()
+          .toList();
+
       unique.shuffle(Random());
 
-      // 2) Якщо масив коментаторів порожній — одразу виводимо No participants
       if (unique.isEmpty) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(loc.no_participants)),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(loc.no_participants)));
         setState(() {
           _participants = [];
           _showCelebration = false;
@@ -67,16 +71,13 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         return;
       }
 
-      // 3) Беремо перші n (мінімум 1, максимум unique.length)
       final limit = n.clamp(1, unique.length);
       final winners = unique.take(limit).toList();
 
-      // 4) Якщо winners все ж опинився порожнім — ще раз No participants
       if (winners.isEmpty) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(loc.no_participants)),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(loc.no_participants)));
         setState(() {
           _participants = [];
           _showCelebration = false;
@@ -84,7 +85,6 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         return;
       }
 
-      // 5) Встановлюємо список переможців та запускаємо конфеті
       setState(() {
         _participants = winners;
         _showCelebration = true;
@@ -123,15 +123,13 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       if (e.code == 'login_required' || e.code == 'invalid_credentials') {
         Navigator.of(context).pushReplacementNamed('/login');
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(loc.error_internal_error)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(loc.error_internal_error)));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -144,7 +142,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // ───────── Основний контент ─────────
+          // Основний контент
           Container(
             decoration: BoxDecoration(
               image: DecorationImage(
@@ -155,7 +153,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
             child: SafeArea(
               child: Column(
                 children: [
-                  // AppBar: кнопка «назад», заголовок, вибір мови
+                  // AppBar
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(
@@ -199,7 +197,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
                   const SizedBox(height: 16),
 
-                  // Поля URL та кількості переможців + кнопка
+                  // Поля та кнопка
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Column(
@@ -246,7 +244,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
                   const SizedBox(height: 20),
 
-                  // ───────── Рендер результатів ─────────
+                  // Результати
                   Expanded(
                     child: _participants.isEmpty
                         ? Center(
@@ -269,10 +267,6 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                             ),
                             itemCount: _participants.length,
                             itemBuilder: (_, i) {
-                              // Останній "guard" — якщо i поза межами, повертаємо порожню ячейку
-                              if (i < 0 || i >= _participants.length) {
-                                return const SizedBox.shrink();
-                              }
                               return ParticipantCard(_participants[i]);
                             },
                           ),
@@ -282,11 +276,11 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
             ),
           ),
 
-          // ───────── Оверлей-лоадер ─────────
+          // Оверлей-лоадер
           if (_loading)
             Positioned.fill(
               child: Container(
-                color: Color.fromARGB(77, 0, 0, 0),
+                color: const Color.fromARGB(77, 0, 0, 0),
                 child: Center(
                   child: SizedBox(
                     width: 200,
@@ -300,11 +294,11 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
               ),
             ),
 
-          // ───────── Оверлей-конфеті ─────────
+          // Оверлей-конфеті
           if (_showCelebration)
             Positioned.fill(
               child: Container(
-                color: Color.fromARGB(77, 0, 0, 0),
+                color: const Color.fromARGB(77, 0, 0, 0),
                 child: Center(
                   child: SizedBox(
                     width: 300,

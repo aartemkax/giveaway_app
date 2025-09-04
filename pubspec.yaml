@@ -13,6 +13,7 @@ dependencies:
     sdk: flutter
   intl: ^0.20.2
   cupertino_icons: ^1.0.8
+  device_info_plus: ^10.0.0
   http: ^1.4.0
   flutter_dotenv: ^5.0.2
   shared_preferences: ^2.0.15
@@ -35,4 +36,3 @@ flutter:
     - .env
     - assets/images/
     - assets/animations/
-  

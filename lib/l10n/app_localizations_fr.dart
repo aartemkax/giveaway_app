@@ -9,11 +9,10 @@ class AppLocalizationsFr extends AppLocalizations {
   AppLocalizationsFr([String locale = 'fr']) : super(locale);
 
   @override
-  String get home_title => 'Tirage Instagram';
+  String get app_name => 'Tirage Instagram';
 
   @override
-  String get invalid_credentials =>
-      'Nom d\'utilisateur ou mot de passe invalide';
+  String get home_title => 'Tirage Instagram';
 
   @override
   String get login_button => 'Se connecter';

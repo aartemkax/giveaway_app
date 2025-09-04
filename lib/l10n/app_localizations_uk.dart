@@ -9,10 +9,10 @@ class AppLocalizationsUk extends AppLocalizations {
   AppLocalizationsUk([String locale = 'uk']) : super(locale);
 
   @override
-  String get home_title => 'Instagram Giveaway';
+  String get app_name => 'Instagram Giveaway';
 
   @override
-  String get invalid_credentials => 'Неправильний логін або пароль';
+  String get home_title => 'Instagram Giveaway';
 
   @override
   String get login_button => 'Увійти';
