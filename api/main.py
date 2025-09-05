@@ -192,8 +192,10 @@ def device_report():
         emu = emulate_device(info, use_phone_code=True)
         return jsonify(emu), 200
     except Exception as e:
-        logger.exception("device_report failed")
-        return jsonify({"error": "invalid_device_info", "detail": str(e)}), 400
+        msg = str(e)
+    if "CSRF token missing" in msg:
+        return jsonify({"error":"proxy_blocked","detail":"csrf_missing"}), 502
+    return jsonify({"error":"invalid_device_info","detail":msg}), 400
 
 # --- фрагмент api/main.py (оновлений тільки /api/fetch_participants_async) ---
 
