@@ -1,76 +1,103 @@
-# device_emulator.py
+# api/device_emulator.py
 import uuid
-from instagrapi import Client
-import phonenumbers
+from typing import Any, Dict
 
-DEFAULT_APP_VERSION     = "269.0.0.18.75"
-DEFAULT_ANDROID_VERSION = 26
-DEFAULT_ANDROID_RELEASE = "8.0.0"
-DEFAULT_VERSION_CODE    = "3145665256"
+# опційно: якщо хочеш мати код країни E.164 (не обов'язково для логіну)
+try:
+    import phonenumbers  # вже є у requirements
+except Exception:
+    phonenumbers = None
 
-def get_phone_code(iso: str) -> int:
+DEFAULT_UA = "Instagram 269.0.0.18.75 Android"
+DEFAULT_LOCALE = "uk-UA"
+
+def _uuid() -> str:
+    return str(uuid.uuid4())
+
+def _phone_code(iso: str | None, fallback: int = 0) -> int:
+    if not iso or not phonenumbers:
+        return fallback
     try:
-        return phonenumbers.country_code_for_region(iso.upper()) or 0
+        return phonenumbers.country_code_for_region(iso.upper()) or fallback
     except Exception:
-        return 0
+        return fallback
 
+def emulate_device(info: Dict[str, Any] | None, use_phone_code: bool = True) -> Dict[str, Any]:
+    """
+    Повертає:
+    {
+      "settings": {
+         "user_agent": str,
+         "device_settings": {...},
+         "uuids": {...},
+         "locale": "uk-UA",
+         "timezone_offset": 180,
+         "cookies": {}
+      },
+      "device_agent": str,
+      "region": "UA"
+    }
+    Без залежності від instagrapi.Client.
+    """
+    info = info or {}
 
-def emulate_device(info: dict, use_phone_code: bool = True):
-    # 1) device settings
-    screen = info.get("screen", {})
+    ua       = info.get("userAgent") or DEFAULT_UA
+    locale   = info.get("locale") or DEFAULT_LOCALE
+    tz       = int(info.get("timezoneOffset") or 180)
+    screen   = info.get("screen") or {}
+    w        = int(screen.get("width") or 1080)
+    h        = int(screen.get("height") or 1920)
+    pr       = float(screen.get("pixelRatio") or 3)
+
+    # базові android-параметри, яких чекає instagrapi
     device_settings = {
-        "app_version":     info.get("appVersion", DEFAULT_APP_VERSION),
-        "android_version": info.get("androidVersion", DEFAULT_ANDROID_VERSION),
-        "android_release": info.get("androidRelease", DEFAULT_ANDROID_RELEASE),
-        "dpi":             f"{int(screen.get('pixelRatio',3)*160)}dpi",
-        "resolution":      f"{screen.get('width',1080)}x{screen.get('height',1920)}",
-        "manufacturer":    info.get("manufacturer","Generic"),
-        "device":          info.get("platform","generic"),
-        "model":           info.get("model","DevModel"),
-        "cpu":             info.get("cpu","qcom"),
-        "version_code":    info.get("versionCode", DEFAULT_VERSION_CODE)
+        "manufacturer":   info.get("manufacturer", "OnePlus"),
+        "model":          info.get("model", "6T Dev"),
+        "device":         info.get("platform", "devitron"),
+        "android_version": int(info.get("androidVersion") or 26),
+        "android_release": info.get("androidRelease", "8.0.0"),
+        "dpi":             f"{int(160 * pr)}dpi",
+        "resolution":      f"{w}x{h}",
+        "cpu":             info.get("cpu", "qcom"),
+        "app_version":     info.get("appVersion", "269.0.0.18.75"),
+        "version_code":    info.get("versionCode", "314665256"),
     }
 
-    # 2) instantiate client & set device
-    cl = Client()
-    cl.set_device(device_settings)
+    uuids = {
+        "phone_id":          _uuid(),
+        "uuid":              _uuid(),
+        "client_session_id": _uuid(),
+        "advertising_id":    _uuid(),
+        # дві назви на різні версії
+        "device_id":         f"android-{uuid.uuid4().hex[:16]}",
+        "android_device_id": f"android-{uuid.uuid4().hex[:16]}",
+        "request_id":        _uuid(),
+        "tray_session_id":   _uuid(),
+    }
 
-    # capture correct Instagram UA
-    settings = cl.get_settings()
-    ua = settings.get("user_agent")
-
-    # 3) mutate UUIDs
-    uu = settings.get("uuids", {})
-    for key in ("phone_id","uuid","request_id"): uu[key] = str(uuid.uuid4())
-    settings["uuids"] = uu
-
-    # 4) apply geo, country, locale
-    geo = info.get("geo", {})
-    if geo:
-        cl.last_geo_location = {
-            "lat": geo.get("latitude",0),
-            "lng": geo.get("longitude",0),
-            "horizontal_accuracy": geo.get("accuracy",50.0),
-            "heading":0, "speed":0
-        }
     iso = (info.get("country_iso") or "").upper()
-    if not iso and "-" in info.get("locale",""): iso = info["locale"].split('-')[1].upper()
-    settings.update({
-        "country": iso,
-        "country_code": get_phone_code(iso) if use_phone_code else iso,
-        "locale": info.get("locale","en_US"),
-        "timezone_offset": info.get("timezoneOffset",0)
-    })
+    if not iso:
+        # спробуємо витягнути з locale типу "uk-UA"
+        loc = (info.get("locale") or "").split("-")
+        if len(loc) == 2:
+            iso = loc[1].upper()
 
-    cl.set_settings(settings)
-    try:
-        cl.set_locale(settings["locale"])
-        cl.set_timezone_offset(settings["timezone_offset"])
-    except AttributeError:
-        pass
+    country_code = _phone_code(iso, 0) if use_phone_code else 0
+
+    settings = {
+        "user_agent": ua,
+        "device_settings": device_settings,
+        "uuids": uuids,
+        "locale": locale,
+        "timezone_offset": tz,
+        "cookies": {},          # важливо: instagrapi очікує ключ cookies
+        # деякі версії читають ці поля з settings:
+        "country": iso or "UA",
+        "country_code": country_code,
+    }
 
     return {
         "settings": settings,
         "device_agent": ua,
-        "geo": cl.last_geo_location
+        "region": iso or "UA",
     }
