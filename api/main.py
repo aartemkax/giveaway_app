@@ -17,7 +17,8 @@ from rq import Queue
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from instagrapi import Client
-from instagrapi.exceptions import BadPassword, ChallengeRequired, TwoFactorRequired
+from instagrapi.exceptions import (BadPassword, ChallengeRequired, TwoFactorRequired,
+    UserNotFound, PleaseWaitFewMinutes, LoginRequired, ClientError,)
 
 from device_emulator import emulate_device
 from tasks import fetch_participants_task
@@ -96,6 +97,12 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
     cl.private.headers.update({"User-Agent": ua})
 
     logger.info("instagrapi login: start user=%s", username)
+    proxy_url = os.getenv("PROXY_URL")  # опційно: додаси у Railway, якщо треба
+    if proxy_url:
+        cl.set_proxy(proxy_url)
+
+    # невеликі паузи між мережевими викликами instagrapi
+    cl.delay_range = [2, 5]
     cl.login(username, password)
     logger.info("instagrapi login: success user=%s", username)
 
@@ -119,19 +126,27 @@ def login():
 
     logger.info("LOGIN start for user=%s", username)
 
-    # дефолти, щоб emulate_device не падала на порожньому тілі
+    # дефолти – щоб емулятор не падав на порожніх полях
     raw_device.setdefault("userAgent", "Instagram 269.0.0.18.75 Android")
     raw_device.setdefault("platform", "Android")
     raw_device.setdefault("locale", "uk-UA")
     raw_device.setdefault("timezoneOffset", 180)
     raw_device.setdefault("screen", {"width": 1080, "height": 1920, "pixelRatio": 3})
 
+    # ⚓️ стабільний «девайс»: беремо з сесії або створюємо 1 раз
     try:
-        emu      = emulate_device(raw_device, use_phone_code=True)  # ← тепер у try
+        emu = session.get('emu_cache')
+        if not emu:
+            emu = emulate_device(raw_device, use_phone_code=True)
+            session['emu_cache'] = emu
+
         settings = emu['settings']
         ua       = emu.get('device_agent')
+    except Exception as e:
+        logger.exception("emulate_device failed")
+        return jsonify({'error': 'invalid_device_info', 'detail': str(e)}), 400
 
-        start = time.time()
+    try:
         with futures.ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(_do_login, username, password, settings, ua)
             session_settings = fut.result(timeout=LOGIN_TIMEOUT_SEC)
@@ -140,20 +155,49 @@ def login():
         logger.error("Login timeout for %s after %ss", username, LOGIN_TIMEOUT_SEC)
         return jsonify({'error': 'gateway_timeout',
                         'detail': f'Login took longer than {LOGIN_TIMEOUT_SEC}s'}), 504
-    except BadPassword:
+
+    except (BadPassword, UserNotFound):
+        # і “пароль невірний”, і “юзера не існує” — однаково
         return jsonify({'error': 'invalid_credentials'}), 401
+
     except ChallengeRequired:
         return jsonify({'error': 'instagram_challenge'}), 412
+
     except TwoFactorRequired:
         return jsonify({'error': 'two_factor_required'}), 412
+
+    except PleaseWaitFewMinutes:
+        return jsonify({'error': 'rate_limited'}), 429
+
+    except LoginRequired:
+        return jsonify({'error': 'login_required'}), 401
+
+    except ClientError as e:
+        # інколи “підозрілий логін” маскується під "user not found"
+        msg = str(e)
+        suspicious_signs = (
+            "doesn't belong to an account",
+            "Please check your username",
+            "Проверьте свое имя пользователя",
+            "Не вдалося знайти обліковий запис",
+            "не вдалося знайти",
+        )
+        if any(sign in msg for sign in suspicious_signs):
+            return jsonify({'error': 'suspicious_login'}), 403
+        logger.exception("ClientError during login")
+        return jsonify({'error': 'internal_error', 'detail': msg}), 500
+
     except Exception as e:
-        # сюди також потраплять винятки з emulate_device
-        logger.exception('Login failed')
-        return jsonify({'error': 'invalid_device_info', 'detail': str(e)}), 400
+        logger.exception('Login failed (unexpected)')
+        return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
+
     finally:
         logger.info("Login %s finished", username)
 
+    # успішний логін
     session["ig_settings"] = session_settings
+    # корисно також оновити кеш «девайсу» settings-ами, що повернув клієнт
+    session['emu_cache'] = {'settings': session_settings, 'device_agent': ua}
     return jsonify({'settings': session_settings}), 200
 
 # ── Public utils: geo & device report ──────────────────────────────────────────
@@ -302,6 +346,37 @@ def index():
             "/api/debug_session",
         ]
     }), 200
+
+@app.route('/api/login_by_sessionid', methods=['POST', 'OPTIONS'])
+def login_by_sessionid():
+    if request.method == 'OPTIONS':
+        return '', 204
+    data = request.get_json(silent=True) or {}
+    sid = (data.get('sessionid') or '').strip()
+    if not sid:
+        return jsonify({'error': 'validation_error', 'detail': 'sessionid required'}), 400
+
+    # беремо стабільний «девайс» з кешу, або створюємо
+    emu = session.get('emu_cache') or emulate_device({}, use_phone_code=True)
+    cl = Client()
+    cl.set_settings(emu['settings'])
+
+    proxy_url = os.getenv("PROXY_URL")
+    if proxy_url:
+        cl.set_proxy(proxy_url)
+    cl.delay_range = [2, 5]
+
+    try:
+        ok = cl.login_by_sessionid(sid)
+        if not ok:
+            return jsonify({'error': 'invalid_sessionid'}), 401
+    except Exception as e:
+        logger.exception("login_by_sessionid failed")
+        return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
+
+    session['ig_settings'] = cl.get_settings()
+    session['emu_cache'] = {'settings': session['ig_settings'], 'device_agent': cl.user_agent}
+    return jsonify({'ok': True}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)
