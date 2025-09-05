@@ -106,26 +106,36 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
 # ── LOGIN ──────────────────────────────────────────────────────────────────────
 # payload: { username, password, deviceInfo }
 # return: 200 { settings } + сервер зберігає session["ig_settings"] (cookie)
+# --- У /api/login перенеси emulate_device всередину try та повертай 400 на помилках ---
 @app.route('/api/login', methods=['POST', 'OPTIONS'])
 def login():
     if request.method == 'OPTIONS':
         return '', 204  # preflight OK
 
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     username   = (data.get('username') or '').strip()
     password   = (data.get('password') or '').strip()
     raw_device = data.get('deviceInfo') or {}
 
     logger.info("LOGIN start for user=%s", username)
-    emu      = emulate_device(raw_device, use_phone_code=True)
-    settings = emu['settings']
-    ua       = emu.get('device_agent')
 
-    start = time.time()
+    # дефолти, щоб emulate_device не падала на порожньому тілі
+    raw_device.setdefault("userAgent", "Instagram 269.0.0.18.75 Android")
+    raw_device.setdefault("platform", "Android")
+    raw_device.setdefault("locale", "uk-UA")
+    raw_device.setdefault("timezoneOffset", 180)
+    raw_device.setdefault("screen", {"width": 1080, "height": 1920, "pixelRatio": 3})
+
     try:
+        emu      = emulate_device(raw_device, use_phone_code=True)  # ← тепер у try
+        settings = emu['settings']
+        ua       = emu.get('device_agent')
+
+        start = time.time()
         with futures.ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(_do_login, username, password, settings, ua)
             session_settings = fut.result(timeout=LOGIN_TIMEOUT_SEC)
+
     except futures.TimeoutError:
         logger.error("Login timeout for %s after %ss", username, LOGIN_TIMEOUT_SEC)
         return jsonify({'error': 'gateway_timeout',
@@ -137,10 +147,11 @@ def login():
     except TwoFactorRequired:
         return jsonify({'error': 'two_factor_required'}), 412
     except Exception as e:
+        # сюди також потраплять винятки з emulate_device
         logger.exception('Login failed')
-        return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
+        return jsonify({'error': 'invalid_device_info', 'detail': str(e)}), 400
     finally:
-        logger.info("Login %s finished in %.2fs", username, time.time() - start)
+        logger.info("Login %s finished", username)
 
     session["ig_settings"] = session_settings
     return jsonify({'settings': session_settings}), 200
@@ -158,13 +169,31 @@ def collect_device_geo():
         geo = {}
     return jsonify({"geo": geo, "ip": ip})
 
+# --- ЗАМІНИ роут /api/device_report на більш «терплячий» ---
 @app.route('/api/device_report', methods=['POST', 'OPTIONS'])
 def device_report():
     if request.method == 'OPTIONS':
         return '', 204  # preflight OK
-    info = (request.get_json() or {}).get("deviceInfo", {})
-    emu  = emulate_device(info, use_phone_code=True)
-    return jsonify(emu)
+
+    # безпечний парсинг JSON
+    data = request.get_json(silent=True) or {}
+    info = data.get('deviceInfo') or data or {}
+
+    # дефолтні значення на випадок порожнього або «неповного» deviceInfo
+    if not info:
+        info = {}
+    info.setdefault("userAgent", "Instagram 269.0.0.18.75 Android")
+    info.setdefault("platform", "Android")
+    info.setdefault("locale", "uk-UA")
+    info.setdefault("timezoneOffset", 180)
+    info.setdefault("screen", {"width": 1080, "height": 1920, "pixelRatio": 3})
+
+    try:
+        emu = emulate_device(info, use_phone_code=True)
+        return jsonify(emu), 200
+    except Exception as e:
+        logger.exception("device_report failed")
+        return jsonify({"error": "invalid_device_info", "detail": str(e)}), 400
 
 # --- фрагмент api/main.py (оновлений тільки /api/fetch_participants_async) ---
 
