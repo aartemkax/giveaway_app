@@ -19,19 +19,20 @@ dependencies:
   shared_preferences: ^2.0.15
   lottie: ^2.3.0
   url_launcher: ^6.1.10
-  
+  dio: ^5.5.0
+  cookie_jar: ^4.0.8
+  dio_cookie_manager: ^3.1.1
+  flutter_inappwebview: ^6.0.0
+  path_provider: ^2.1.4
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-  
-  
 
 flutter:
   generate: true
   uses-material-design: true
-
   assets:
     - .env
     - assets/images/

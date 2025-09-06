@@ -6,18 +6,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'screens/login_screen.dart';
 import 'screens/participants_screen.dart';
+import 'package:giveaway_app/services/api_client.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 1) Завантажуємо .env з кореня проєкту
   await dotenv.load(fileName: '.env');
 
-  // 2) Перевіряємо, чи був раніше логін
+  // важливо: підключити PersistCookieJar до Dio
+  await ApiClient().initCookies();
+
   final prefs = await SharedPreferences.getInstance();
   final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
 
-  // 3) Стартуємо додаток
   runApp(MyApp(initialRoute: isLoggedIn ? '/participants' : '/login'));
 }
 

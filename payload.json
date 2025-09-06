@@ -1,0 +1,27 @@
+{
+  "username": "artemluib",
+  "password": "qwertypapkyebal123",
+  "deviceInfo": {
+    "device_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+    "screen": {
+      "width": 393,
+      "height": 852,
+      "pixelRatio": 3
+    },
+    "platform": "iPhone",
+    "model": "iPhone",
+    "manufacturer": "Apple",
+    "cpu": "unknown",
+    "androidVersion": 18,
+    "androidRelease": "18.5",
+    "appVersion": "Mobile Safari 18.5",
+    "geo": {
+      "lat": 50.4501,
+      "lng": 30.5234,
+      "accuracy": 50
+    },
+    "locale": "uk-UA",
+    "country_iso": "UA",
+    "timezoneOffset": -180
+  }
+}

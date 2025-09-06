@@ -2,12 +2,14 @@
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:giveaway_app/utils/asset_paths.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:giveaway_app/l10n/app_localizations.dart';
-import 'package:giveaway_app/utils/instagram_launcher.dart';
-import '../utils/api_exception.dart';
-import '../services/auth_service.dart';
+import 'package:giveaway_app/utils/asset_paths.dart';
+import 'package:giveaway_app/utils/api_exception.dart';
+import 'package:giveaway_app/services/auth_service.dart';
 import 'package:giveaway_app/services/device_service.dart';
+import 'package:giveaway_app/screens/instagram_login_webview.dart';
 
 class LoginScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
@@ -33,30 +35,19 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _showInstagramDialog(AppLocalizations loc) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(loc.error_instagram_challenge),
-        content: Text(loc.error_instagram_challenge),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(loc.ok_button),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              InstagramLauncher.openInstagram(
-                deepLink: 'instagram://settings',
-                fallbackUrl: 'https://www.instagram.com/accounts/edit/',
-              );
-            },
-            child: Text(loc.open_instagram_button),
-          ),
-        ],
-      ),
+  /// Веб-логін Instagram у вбудованому WebView.
+  /// Після успіху ставимо локальний прапорець і переходимо далі.
+  Future<void> _openInstagramWebLogin() async {
+    final ok = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const InstagramLoginWebView()),
     );
+    if (!mounted) return;
+    if (ok == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed('/participants');
+    }
   }
 
   Future<void> _submit() async {
@@ -65,35 +56,43 @@ class _LoginScreenState extends State<LoginScreen> {
     final password = _passCtrl.text.trim();
 
     if (username.isEmpty || password.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(loc.remind_enter_credentials)));
       return;
     }
     if (username.length < 3 || password.length < 6) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(loc.validation_length(3, 6))));
       return;
     }
 
     setState(() => _loading = true);
+
     Map<String, dynamic> raw = {};
     Map<String, dynamic> emu = {};
     try {
       raw = await DeviceService().collectFingerprint();
-      debugPrint('🔎 raw deviceInfo: ${jsonEncode(raw)}');
+      debugPrint('raw deviceInfo: ${jsonEncode(raw)}');
       emu = await DeviceService().emulateOnServer(raw);
-      debugPrint('🔎 emulated deviceInfo: ${jsonEncode(emu)}');
+      debugPrint('emulated deviceInfo: ${jsonEncode(emu)}');
     } catch (e) {
-      debugPrint('⚠️ Device emulation failed: $e');
+      debugPrint('Device emulation failed: $e');
     }
 
     try {
       await AuthService().login(username, password, deviceInfo: emu);
+
+      // успішно: зберігаємо локальний стан і переходимо
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/participants');
     } on ApiException catch (e) {
       String text;
-      bool showButton = false;
+      bool openWebFlow = false;
+
       switch (e.code) {
         case 'validation_error':
           text = loc.error_validation_error;
@@ -105,33 +104,25 @@ class _LoginScreenState extends State<LoginScreen> {
           text = e.detail == 'submit_phone'
               ? loc.error_instagram_submit_phone
               : loc.error_instagram_challenge;
-          showButton = e.detail == 'submit_phone';
+          openWebFlow = true;
+          break;
+        case 'suspicious_login':
+          text = loc.error_instagram_challenge;
+          openWebFlow = true;
           break;
         default:
           text = e.code == 'internal_error'
               ? loc.error_internal_error
               : loc.error_generic(e.code);
       }
+
       if (!mounted) return;
-      if (e.code == 'instagram_challenge') {
-        _showInstagramDialog(loc);
+
+      if (openWebFlow) {
+        await _openInstagramWebLogin();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(text),
-            action: showButton
-                ? SnackBarAction(
-                    label: loc.ok_button,
-                    onPressed: () {
-                      InstagramLauncher.openInstagram(
-                        deepLink: 'instagram://settings',
-                        fallbackUrl:
-                            'https://www.instagram.com/accounts/security_and_login/',
-                      );
-                    },
-                  )
-                : null,
-          ),
+          SnackBar(content: Text(text)),
         );
       }
     } catch (_) {
@@ -139,7 +130,8 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(loc.error_internal_error)));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() => _loading = false);
     }
   }
 
@@ -218,9 +210,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             : Icons.visibility,
                         color: Colors.grey[700],
                       ),
-                      onPressed: () => setState(
-                        () => _obscurePassword = !_obscurePassword,
-                      ),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                     ),
                   ),
                 ),
@@ -237,6 +228,11 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Text(loc.login_button),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: _loading ? null : _openInstagramWebLogin,
+                  child: Text(loc.open_instagram_button),
                 ),
               ],
             ),

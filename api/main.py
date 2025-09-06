@@ -378,5 +378,12 @@ def login_by_sessionid():
     session['emu_cache'] = {'settings': session['ig_settings'], 'device_agent': cl.user_agent}
     return jsonify({'ok': True}), 200
 
+@app.route('/api/logout', methods=['POST', 'OPTIONS'])
+def logout():
+    if request.method == 'OPTIONS':
+        return '', 204  # CORS preflight
+    session.clear()
+    return jsonify({'ok': True}), 200
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)
