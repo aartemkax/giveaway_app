@@ -40,15 +40,9 @@ app.config.update(
     SESSION_COOKIE_SAMESITE=os.getenv("SESSION_COOKIE_SAMESITE", "None"),
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true",
 )
-from redis import Redis
-# Якщо Railway дасть TLS (`rediss://`), дозволимо під’єднання без сертифіката
-_tls = {"ssl_cert_reqs": None} if redis_url.startswith("rediss://") else {}
-app.config["SESSION_REDIS"] = Redis.from_url(redis_url, **_tls)
-
 Session(app)
 
-# CORS: дозволяємо будь-який локальний порт (localhost / 127.0.0.1)
-# Увага: з credentials не можна '*' — тому використовуємо regex.
+# CORS …
 allowed = [
     re.compile(r"^http://localhost:\d+$"),
     re.compile(r"^http://127\.0\.0\.1:\d+$"),
@@ -62,13 +56,11 @@ CORS(
     supports_credentials=True,
     resources={r"/api/*": {"origins": allowed}},
     allow_headers=["Content-Type"],
-    methods=["GET","POST","OPTIONS"],
+    methods=["GET", "POST", "OPTIONS"],
     expose_headers=["Content-Type"],
 )
-# ── Redis & RQ ─────────────────────────────────────────────────────────────────
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-_tls = {"ssl_cert_reqs": None} if redis_url.startswith("rediss://") else {}
-app.config["SESSION_REDIS"] = Redis.from_url(redis_url, **_tls)
+
+# ── Redis & RQ ─────────────────────────────────────────
 redis_conn = Redis.from_url(redis_url)
 queue = Queue(connection=redis_conn)
 
