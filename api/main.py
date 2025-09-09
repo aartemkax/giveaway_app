@@ -40,6 +40,12 @@ app.config.update(
     SESSION_COOKIE_SAMESITE=os.getenv("SESSION_COOKIE_SAMESITE", "None"),
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true",
 )
+
+# ── Redis/Session (one source of truth) ─────────────────
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+_tls = {"ssl_cert_reqs": None} if redis_url.startswith("rediss://") else {}
+app.config["SESSION_REDIS"] = Redis.from_url(redis_url, **_tls)
+
 Session(app)
 
 # CORS …
