@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:dio/dio.dart';
 import 'package:giveaway_app/services/api_client.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class InstagramLoginWebView extends StatefulWidget {
   const InstagramLoginWebView({super.key});
@@ -11,7 +12,7 @@ class InstagramLoginWebView extends StatefulWidget {
 }
 
 class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
-  final WebUri _instaUri = WebUri("https://www.instagram.com/accounts/login/");
+  final WebUri _instaUri = WebUri('https://www.instagram.com/accounts/login/');
   bool _sent = false;
 
   @override
@@ -21,14 +22,20 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
       body: InAppWebView(
         initialUrlRequest: URLRequest(url: _instaUri),
         initialSettings: InAppWebViewSettings(
+          // <— без const
           javaScriptEnabled: true,
           thirdPartyCookiesEnabled: true,
           sharedCookiesEnabled: true,
         ),
+        onReceivedError: (controller, request, error) async {
+          if (request.isForMainFrame == true) {
+            final uri = Uri.parse('https://www.instagram.com/accounts/login/');
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          }
+        },
         onLoadStop: (controller, url) async {
-          final cookies = await CookieManager.instance().getCookies(
-            url: WebUri("https://www.instagram.com/"),
-          );
+          final cookies = await CookieManager.instance()
+              .getCookies(url: WebUri('https://www.instagram.com/'));
           String sid = '';
           for (final c in cookies) {
             if (c.name == 'sessionid') {
@@ -40,6 +47,7 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
             _sent = true;
             final ok = await _sendSessionIdToApi(sid);
             if (!mounted) return;
+            // ignore: use_build_context_synchronously
             Navigator.of(context).pop(ok);
           }
         },

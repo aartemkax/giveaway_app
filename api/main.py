@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from redis import Redis
 from rq import Queue
 from werkzeug.middleware.proxy_fix import ProxyFix
+from datetime import timedelta
 
 from instagrapi import Client
 from instagrapi.exceptions import (BadPassword, ChallengeRequired, TwoFactorRequired,
@@ -30,9 +31,8 @@ logger = logging.getLogger("api")
 
 # ── Flask (Session + CORS) ───────────────────────────
 app = Flask(__name__)
+app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1)
-
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 app.config.update(
     SECRET_KEY=os.getenv("FLASK_SECRET_KEY", "dev-secret-key"),
@@ -67,6 +67,8 @@ CORS(
 )
 # ── Redis & RQ ─────────────────────────────────────────────────────────────────
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+_tls = {"ssl_cert_reqs": None} if redis_url.startswith("rediss://") else {}
+app.config["SESSION_REDIS"] = Redis.from_url(redis_url, **_tls)
 redis_conn = Redis.from_url(redis_url)
 queue = Queue(connection=redis_conn)
 
@@ -76,12 +78,19 @@ LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
 
 @app.before_request
 def _log_request():
-    logger.info(">> %s %s | headers=%s", request.method, request.path, dict(request.headers))
-    try:
-        if request.method != "GET":
-            logger.info("   body=%s", request.get_data(as_text=True))
-    except Exception:
-        pass
+    hdrs = dict(request.headers)
+    if 'Cookie' in hdrs:
+        hdrs['Cookie'] = '<masked>'
+    body_preview = ''
+    if request.method != "GET":
+        try:
+            if request.path not in ('/api/login', '/api/login_by_sessionid'):
+                body_preview = request.get_data(as_text=True)[:1000]
+            else:
+                body_preview = '<masked>'
+        except Exception:
+            body_preview = '<unreadable>'
+    logger.info(">> %s %s | headers=%s | body=%s", request.method, request.path, hdrs, body_preview)
 
 @app.after_request
 def _log_response(resp):
@@ -253,7 +262,7 @@ def fetch_async():
         raw_body = request.get_data(as_text=True)
     except Exception:
         raw_body = '<cannot read body>'
-    logger.info("FETCH_ASYNC: cookies=%s", request.headers.get('Cookie'))
+    logger.info("FETCH_ASYNC: cookies=<present:%s>", 'Cookie' in request.headers)
     logger.info("FETCH_ASYNC: body=%s", raw_body)
 
     # ⛔️ немає інста-сесії в серверній cookie-сесії

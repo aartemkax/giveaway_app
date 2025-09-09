@@ -1,50 +1,42 @@
-// lib/services/api_client.dart
-import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:path_provider/path_provider.dart';
+
+// умовні імпорти: web -> http_adapter_web.dart, io -> http_adapter_io.dart
+import 'http_adapter_stub.dart'
+    if (dart.library.html) 'http_adapter_web.dart'
+    if (dart.library.io) 'http_adapter_io.dart';
 
 class ApiClient {
-  static final ApiClient _i = ApiClient._();
   ApiClient._();
+  static final ApiClient _i = ApiClient._();
   factory ApiClient() => _i;
 
-  Dio? _dio;
-  PersistCookieJar? _jar;
+  late final Dio dio = _build();
 
-  Dio get dio {
-    if (_dio != null) return _dio!;
-    final base = dotenv.env['API_BASE_URL']?.trim();
-    if (base == null || base.isEmpty) {
+  Dio _build() {
+    final baseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
+    if (baseUrl.isEmpty) {
       throw StateError('API_BASE_URL is not set in .env');
     }
     final d = Dio(BaseOptions(
-      baseUrl: base,
-      connectTimeout: const Duration(seconds: 20),
-      receiveTimeout: const Duration(seconds: 30),
-      followRedirects: false,
-      validateStatus: (code) => code != null && code >= 200 && code < 600,
-      headers: {'Content-Type': 'application/json'},
+      baseUrl: baseUrl,
+      validateStatus: (s) => s != null && s < 600,
+      headers: {'Accept': 'application/json'},
+      // (за потреби) підніми таймаути
+      connectTimeout: const Duration(seconds: 25),
+      receiveTimeout: const Duration(seconds: 25),
+      sendTimeout: const Duration(seconds: 25),
     ));
-    // під’єднаємо cookie-jar пізніше (async)
-    _dio = d;
-    return _dio!;
-  }
 
-  /// Викликни один раз на старті (у main) — підключає PersistCookieJar.
-  Future<void> initCookies() async {
-    if (_jar != null) return;
-    final dir = await getApplicationSupportDirectory();
-    _jar = PersistCookieJar(
-      storage: FileStorage('${dir.path}${Platform.pathSeparator}cookies'),
-    );
-    dio.interceptors.removeWhere((i) => i is CookieManager);
-    dio.interceptors.add(CookieManager(_jar!));
-  }
+    // платформи: веб/мобайл
+    d.httpClientAdapter = newAdapter();
 
-  Future<void> clearCookies() async {
-    await _jar?.deleteAll();
+    // кукі: достатньо In-Memory на перший час (PersistCookieJar додаси пізніше)
+    d.interceptors.add(CookieManager(CookieJar()));
+
+    return d;
   }
 }
