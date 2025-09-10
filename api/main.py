@@ -250,14 +250,12 @@ def device_report():
         return jsonify({"error":"proxy_blocked","detail":"csrf_missing"}), 502
     return jsonify({"error":"invalid_device_info","detail":msg}), 400
 
-# --- фрагмент api/main.py (оновлений тільки /api/fetch_participants_async) ---
-
 @app.route('/api/fetch_participants_async', methods=['POST', 'OPTIONS'])
 def fetch_async():
     if request.method == 'OPTIONS':
         return '', 204  # preflight OK
 
-    # 🔎 детальний лог того, що реально прийшло
+    # детальний лог
     try:
         raw_body = request.get_data(as_text=True)
     except Exception:
@@ -265,18 +263,13 @@ def fetch_async():
     logger.info("FETCH_ASYNC: cookies=<present:%s>", 'Cookie' in request.headers)
     logger.info("FETCH_ASYNC: body=%s", raw_body)
 
-    # ⛔️ немає інста-сесії в серверній cookie-сесії
+    # потрібна активна інста-сесія
     if "ig_settings" not in session:
         logger.warning("FETCH_ASYNC: ig_settings missing in session -> session_expired")
-        return jsonify({
-            'error': 'login_required',
-            'detail': 'session_expired'
-        }), 401
+        return jsonify({'error': 'login_required', 'detail': 'session_expired'}), 401
 
     data = request.get_json(force=True) or {}
     post_url = (data.get('post_url') or '').strip()
-
-    # Додамо "/" в кінець для стабільності парсингу
     if post_url and not post_url.endswith('/'):
         post_url += '/'
 
@@ -286,20 +279,54 @@ def fetch_async():
         logger.warning("FETCH_ASYNC: invalid_post_url")
         return jsonify({'error': 'invalid_post_url'}), 400
 
-    settings_b64 = base64.b64encode(json.dumps(session["ig_settings"]).encode()).decode()
-    job = queue.enqueue(
-    fetch_participants_task,
-    settings_b64,
-    post_url,
-    False,                 # use_proxy
-    data.get('device_info'),
-    data.get('region'),
-    job_timeout=600,
-    result_ttl=3600,
-    retry=Retry(max=3, interval=[30, 120, 300])
-)
-    logger.info("FETCH_ASYNC: enqueued job_id=%s for %s", job.id, post_url)
-    return jsonify({'job_id': job.id}), 202
+    # ------- пер-клієнтний ліміт активних джоб -------
+    session_cookie_name = app.config.get("SESSION_COOKIE_NAME", "session")
+    sid = request.cookies.get(session_cookie_name)
+    client_id = sid or request.remote_addr or "anon"
+
+    active_key = f"rq:active:{client_id}"
+    max_active = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "3"))
+
+    n = redis_conn.incr(active_key)
+    # тримаємо лічильник 2 хвилини (оновлюється кожним запитом)
+    redis_conn.expire(active_key, 120)
+
+    if n > max_active:
+        # повертаємо інкремент, щоб не «зависав» ліміт
+        try:
+            redis_conn.decr(active_key)
+        except Exception:
+            pass
+        return jsonify({'error': 'rate_limited', 'detail': 'too_many_jobs'}), 429
+
+    try:
+        settings_b64 = base64.b64encode(
+            json.dumps(session["ig_settings"]).encode()
+        ).decode()
+
+        job = queue.enqueue(
+            fetch_participants_task,
+            settings_b64,
+            post_url,
+            False,                 # use_proxy
+            data.get('device_info'),
+            data.get('region'),
+            job_timeout=600,
+            result_ttl=3600,
+            retry=Retry(max=3, interval=[30, 120, 300]),
+            meta={'client_id': client_id}  # опційно: для дебагу
+        )
+        logger.info("FETCH_ASYNC: enqueued job_id=%s for %s", job.id, post_url)
+        return jsonify({'job_id': job.id}), 202
+
+    except Exception as e:
+        # якщо enqueue звалився — відкотимо лічильник
+        try:
+            redis_conn.decr(active_key)
+        except Exception:
+            pass
+        logger.exception("FETCH_ASYNC: enqueue failed")
+        return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
 
 # ── Job status & result ────────────────────────────────────────────────────────
 @app.route('/api/job_status/<job_id>', methods=['GET', 'OPTIONS'])

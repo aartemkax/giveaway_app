@@ -1,23 +1,19 @@
-#tasks.py
+# tasks.py
 import logging
 import os
 import json
 import random
 import re
-import time
 import base64
-from datetime import datetime
 
 from instagrapi import Client
 from instagrapi.exceptions import (
     LoginRequired,
     ChallengeRequired,
-    MediaNotFound,
-    PleaseWaitFewMinutes
+    PleaseWaitFewMinutes,
 )
 from redis import Redis
 import prometheus_client
-from device_emulator import emulate_device  # додано емулювання пристрою
 
 # регулярка для перевірки Instagram-лінку
 URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/p/[^/]+/?$")
@@ -26,14 +22,14 @@ URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/p/[^/]+/?$")
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_conn = Redis.from_url(redis_url)
 
-# Директорія з JSON-сесіями ботів
+# Директорія з JSON-сесіями ботів (на майбутнє, якщо потрібні)
 BOT_SESSIONS_DIR = os.path.join(os.path.dirname(__file__), "bot_sessions")
 os.makedirs(BOT_SESSIONS_DIR, exist_ok=True)
 bot_files = [f for f in os.listdir(BOT_SESSIONS_DIR) if f.endswith('.json')]
 
 # Інші конфіги
 PAGE_SIZE = int(os.getenv("PAGE_SIZE", "20"))
-CACHE_TTL = int(os.getenv("CACHE_TTL", "3600"))  # секунди
+CACHE_TTL = int(os.getenv("CACHE_TTL", "3600"))  # секунди (за замовчуванням 1 година)
 
 # Проксі (опційно)
 try:
@@ -48,9 +44,17 @@ RATE_LIMIT_EXCEPTIONS = prometheus_client.Counter(
 CHALLENGE_EXCEPTIONS = prometheus_client.Counter(
     'instagrapi_challenge_exceptions', 'Instagram challenge hits'
 )
+CACHE_HITS = prometheus_client.Counter(
+    'participants_cache_hits', 'Cache hits for comments'
+)
+CACHE_MISSES = prometheus_client.Counter(
+    'participants_cache_misses', 'Cache misses for comments'
+)
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("tasks")
 logging.getLogger("instagrapi").setLevel(logging.INFO)
+
 
 def fetch_participants_task(
     settings_b64: str,
@@ -59,12 +63,17 @@ def fetch_participants_task(
     device_info=None,
     region=None
 ):
+    """
+    Отримати список унікальних учасників (username + avatar) з коментарів до посту.
+    Логін НЕ виконується — використовуються settings сесії, передані з бекенду.
+    Коментарі кешуються у Redis (легкі об’єкти).
+    """
     # 1) Відновлюємо settings
     try:
         decoded = base64.b64decode(settings_b64)
         user_settings = json.loads(decoded)
     except Exception:
-        logging.exception("Не вдалося декодувати settings_b64")
+        logger.exception("Не вдалося декодувати settings_b64")
         return {"error": "invalid_session_settings"}
 
     proxy = random.choice(PROXIES) if use_proxy and PROXIES else None
@@ -76,6 +85,7 @@ def fetch_participants_task(
     if ua:
         cl.user_agent = ua
         cl.private.headers.update({"User-Agent": ua})
+    logger.info("fetch: UA=%s proxy=%s", cl.user_agent, proxy is not None)
 
     # 2) Валідація URL і отримання media_id
     if not URL_PATTERN.match(post_url):
@@ -87,27 +97,36 @@ def fetch_participants_task(
 
     # 3) Ключ кешу і TTL
     cache_key = f"ig:comments:{media_id}"
-    ttl = int(os.getenv("CACHE_TTL", "1800"))  # 30 хв за замовчуванням
+    ttl = CACHE_TTL
 
     # 4) Читаємо з кешу
+    items = None
     cached = redis_conn.get(cache_key)
     if cached:
         try:
-            items = json.loads(cached)  # це вже "легкі" словники
+            items = json.loads(cached)  # це вже "легкі" словники [{"u":..., "p":...}, ...]
+            CACHE_HITS.inc()
+            logger.info("fetch: cache HIT for media_id=%s", media_id)
         except Exception:
             items = None
-    else:
-        items = None
 
     # 5) Якщо кеша нема — тягнемо з інсти і нормалізуємо
     if items is None:
+        CACHE_MISSES.inc()
+        logger.info("fetch: cache MISS for media_id=%s, fetching from IG", media_id)
         try:
             comments = cl.media_comments(media_id, amount=0)  # усі коменти
         except PleaseWaitFewMinutes:
             RATE_LIMIT_EXCEPTIONS.inc()
             return {"error": "rate_limited"}
+        except LoginRequired:
+            # Сесія не валідна — треба перелогінитись на фронті
+            return {"error": "login_required"}
+        except ChallengeRequired:
+            CHALLENGE_EXCEPTIONS.inc()
+            return {"error": "instagram_challenge"}
         except Exception as e:
-            logging.exception("Error fetching comments")
+            logger.exception("Error fetching comments")
             return {"error": "internal_error", "detail": str(e)}
 
         # залишаємо тільки потрібне
@@ -119,7 +138,7 @@ def fetch_participants_task(
         try:
             redis_conn.setex(cache_key, ttl, json.dumps(items))
         except Exception:
-            logging.exception("Не вдалося записати кеш у Redis")
+            logger.exception("Не вдалося записати кеш у Redis")
 
     # 6) Формуємо унікальний список учасників
     participants, seen = [], set()
