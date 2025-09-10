@@ -16,10 +16,12 @@ from redis import Redis
 from rq import Queue
 from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import timedelta
+from rq import Retry
 
 from instagrapi import Client
 from instagrapi.exceptions import (BadPassword, ChallengeRequired, TwoFactorRequired,
     UserNotFound, PleaseWaitFewMinutes, LoginRequired, ClientError,)
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from device_emulator import emulate_device
 from tasks import fetch_participants_task
@@ -286,15 +288,16 @@ def fetch_async():
 
     settings_b64 = base64.b64encode(json.dumps(session["ig_settings"]).encode()).decode()
     job = queue.enqueue(
-        fetch_participants_task,
-        settings_b64,
-        post_url,
-        False,                 # use_proxy
-        data.get('device_info'),
-        data.get('region'),
-        job_timeout=600,
-        result_ttl=3600
-    )
+    fetch_participants_task,
+    settings_b64,
+    post_url,
+    False,                 # use_proxy
+    data.get('device_info'),
+    data.get('region'),
+    job_timeout=600,
+    result_ttl=3600,
+    retry=Retry(max=3, interval=[30, 120, 300])
+)
     logger.info("FETCH_ASYNC: enqueued job_id=%s for %s", job.id, post_url)
     return jsonify({'job_id': job.id}), 202
 
@@ -391,6 +394,10 @@ def logout():
         return '', 204  # CORS preflight
     session.clear()
     return jsonify({'ok': True}), 200
+
+@app.get("/metrics")
+def metrics():
+    return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)

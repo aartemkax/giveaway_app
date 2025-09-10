@@ -59,57 +59,74 @@ def fetch_participants_task(
     device_info=None,
     region=None
 ):
-    # Відновлюємо лише сесію без повторної емуляції чи логіну
+    # 1) Відновлюємо settings
     try:
         decoded = base64.b64decode(settings_b64)
         user_settings = json.loads(decoded)
-    except Exception as e:
+    except Exception:
         logging.exception("Не вдалося декодувати settings_b64")
         return {"error": "invalid_session_settings"}
 
     proxy = random.choice(PROXIES) if use_proxy and PROXIES else None
     cl = Client(proxy=proxy)
     cl.delay_range = (2.0, 5.0)
-
-    # Встановлюємо налаштування сесії
     cl.set_settings(user_settings)
+
     ua = user_settings.get("user_agent")
     if ua:
         cl.user_agent = ua
         cl.private.headers.update({"User-Agent": ua})
-    logging.info(">>> fetch таск використовує UA=%s", cl.user_agent)
 
-    # Валідація URL
+    # 2) Валідація URL і отримання media_id
     if not URL_PATTERN.match(post_url):
         return {"error": "invalid_post_url"}
-
-    # Отримуємо media_id
     try:
         media_id = cl.media_pk_from_url(post_url)
     except Exception:
         return {"error": "invalid_post_url"}
 
-    # Завантажуємо всі коментарі одним запитом
-    try:
-        comments = cl.media_comments(media_id, amount=0)
-    except PleaseWaitFewMinutes:
-        RATE_LIMIT_EXCEPTIONS.inc()
-        return {"error": "rate_limited"}
-    except Exception as e:
-        logging.exception("Error fetching comments")
-        return {"error": "internal_error", "detail": str(e)}
+    # 3) Ключ кешу і TTL
+    cache_key = f"ig:comments:{media_id}"
+    ttl = int(os.getenv("CACHE_TTL", "1800"))  # 30 хв за замовчуванням
 
-    # Формуємо унікальний список учасників
-    participants = []
-    seen = set()
-    for c in comments:
-        uname = c.user.username
-        if uname not in seen:
-            seen.add(uname)
-            participants.append({
-                "username": uname,
-                "profile_pic_url": str(c.user.profile_pic_url)
-            })
+    # 4) Читаємо з кешу
+    cached = redis_conn.get(cache_key)
+    if cached:
+        try:
+            items = json.loads(cached)  # це вже "легкі" словники
+        except Exception:
+            items = None
+    else:
+        items = None
 
+    # 5) Якщо кеша нема — тягнемо з інсти і нормалізуємо
+    if items is None:
+        try:
+            comments = cl.media_comments(media_id, amount=0)  # усі коменти
+        except PleaseWaitFewMinutes:
+            RATE_LIMIT_EXCEPTIONS.inc()
+            return {"error": "rate_limited"}
+        except Exception as e:
+            logging.exception("Error fetching comments")
+            return {"error": "internal_error", "detail": str(e)}
+
+        # залишаємо тільки потрібне
+        items = [
+            {"u": c.user.username, "p": str(c.user.profile_pic_url)}
+            for c in comments
+        ]
+        # покладемо в Redis
+        try:
+            redis_conn.setex(cache_key, ttl, json.dumps(items))
+        except Exception:
+            logging.exception("Не вдалося записати кеш у Redis")
+
+    # 6) Формуємо унікальний список учасників
+    participants, seen = [], set()
+    for it in items:
+        u = it["u"]
+        if u not in seen:
+            seen.add(u)
+            participants.append({"username": u, "profile_pic_url": it["p"]})
 
     return participants
