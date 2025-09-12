@@ -5,11 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:lottie/lottie.dart';
 import '../utils/api_exception.dart';
-// Тепер цей імпорт справді потрібен
 import '../services/participants_service.dart';
 import '../models/participant.dart';
 import '../widgets/participant_card.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:giveaway_app/services/api_client.dart';
 
 class ParticipantsScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
@@ -293,6 +294,27 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                 ),
               ),
             ),
+
+          AppBar(
+            title: Text(loc.participants_title),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.logout),
+                onPressed: () async {
+                  // 1) серверна сесія
+                  await ApiClient().dio.post('/api/logout');
+                  // 2) локальні куки (WebView + Dio)
+                  await CookieManager.instance().deleteAllCookies();
+                  await ApiClient().clearCookies();
+                  if (!mounted) return;
+                  // 3) повертаємось на логін
+                  Navigator.of(context)
+                      .pushNamedAndRemoveUntil('/login', (r) => false);
+                },
+                tooltip: 'Вийти',
+              ),
+            ],
+          ),
 
           // Оверлей-конфеті
           if (_showCelebration)

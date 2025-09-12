@@ -14,6 +14,7 @@ class ApiClient {
   static final ApiClient _i = ApiClient._();
   factory ApiClient() => _i;
 
+  final CookieJar _jar = CookieJar();
   late final Dio dio = _build();
 
   Dio _build() {
@@ -39,4 +40,6 @@ class ApiClient {
 
     return d;
   }
+
+  Future<void> clearCookies() => _jar.deleteAll();
 }
