@@ -228,13 +228,9 @@ def device_report():
     if request.method == 'OPTIONS':
         return '', 204  # preflight OK
 
-    # безпечний парсинг JSON
     data = request.get_json(silent=True) or {}
     info = data.get('deviceInfo') or data or {}
 
-    # дефолтні значення на випадок порожнього або «неповного» deviceInfo
-    if not info:
-        info = {}
     info.setdefault("userAgent", "Instagram 269.0.0.18.75 Android")
     info.setdefault("platform", "Android")
     info.setdefault("locale", "uk-UA")
@@ -243,6 +239,7 @@ def device_report():
 
     try:
         emu = emulate_device(info, use_phone_code=True)
+        session['emu_cache'] = emu          # 👈 обов'язково покласти в сесію
         return jsonify(emu), 200
     except Exception as e:
         msg = str(e)

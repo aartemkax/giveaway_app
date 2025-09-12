@@ -6,6 +6,7 @@ import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
 import 'package:giveaway_app/screens/instagram_login_webview.dart';
 import 'package:giveaway_app/services/api_client.dart'; // ⬅️ потрібен для /api/debug_session
+import 'package:giveaway_app/services/device_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
@@ -33,6 +34,15 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_loading) return;
     setState(() => _loading = true);
 
+    // 👉 1) Прогріваємо девайс на бекенді (emu_cache в сесії)
+    try {
+      final raw = await DeviceService().collectFingerprint();
+      await DeviceService().emulateOnServer(raw);
+    } catch (_) {
+      // не блокуємо логін, якщо прогрів не вдався
+    }
+
+    // 👉 2) Відкриваємо Instagram WebView
     final ok = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const InstagramLoginWebView()),
     );
@@ -49,12 +59,10 @@ class _LoginScreenState extends State<LoginScreen> {
         if (!mounted) return;
         Navigator.of(context).pushReplacementNamed('/participants');
       } else if (retryIfNoSession) {
-        // тихо повторюємо один раз
         setState(() => _loading = false);
         await _openInstagramWebLogin(retryIfNoSession: false);
         return;
       } else {
-        // опційно: повідомити про збій встановлення сесії
         final loc = AppLocalizations.of(context)!;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(loc.error_internal_error)),
