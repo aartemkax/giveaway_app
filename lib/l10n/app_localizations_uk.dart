@@ -85,6 +85,11 @@ class AppLocalizationsUk extends AppLocalizations {
   String get error_rate_limited => 'Забагато запитів. Зачекайте кілька хвилин.';
 
   @override
+  String error_too_many_jobs(int active, int limit, String mm, String ss) {
+    return 'Черга перевантажена. У вас уже $active із $limit активних завдань. Спробуйте знову через $mm:$ss.';
+  }
+
+  @override
   String get error_session_expired => 'Сесія закінчилася. Увійдіть знову.';
 
   @override

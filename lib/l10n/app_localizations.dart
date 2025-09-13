@@ -238,6 +238,12 @@ abstract class AppLocalizations {
   /// **'Too many requests. Please wait a few minutes.'**
   String get error_rate_limited;
 
+  /// Shown when app queue limit is hit (HTTP 429)
+  ///
+  /// In en, this message translates to:
+  /// **'Queue is busy. You already have {active} of {limit} active tasks. Try again in {mm}:{ss}.'**
+  String error_too_many_jobs(int active, int limit, String mm, String ss);
+
   /// detail == "session_expired" (HTTP 401)
   ///
   /// In en, this message translates to:

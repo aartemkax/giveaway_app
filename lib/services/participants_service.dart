@@ -10,19 +10,25 @@ import '../utils/api_exception.dart';
 class ParticipantsService {
   final Dio _dio = ApiClient().dio;
 
-  // Чітка перевірка посилання на пост
   static final RegExp _igPostRe = RegExp(
     r'^https?:\/\/(www\.)?instagram\.com\/p\/[^\/\s]+\/?$',
     caseSensitive: false,
   );
-
   bool _isValidPostUrl(String url) => _igPostRe.hasMatch(url.trim());
+
+  int _retryAfterSeconds(Response r, dynamic body) {
+    final h = r.headers.value('retry-after');
+    final hv = h == null ? null : int.tryParse(h.trim());
+    if (hv != null && hv >= 0) return hv;
+    if (body is Map && body['retryAfter'] is int)
+      return body['retryAfter'] as int;
+    return 3600; // фолбек під RQ_DEFAULT_RESULT_TTL
+  }
 
   Future<List<Participant>> fetchParticipants(
     String postUrl, {
     required BuildContext context,
   }) async {
-    // 1) Клієнтська валідація
     postUrl = postUrl.trim();
     if (postUrl.isEmpty || !_isValidPostUrl(postUrl)) {
       throw ApiException('invalid_post_url');
@@ -30,21 +36,32 @@ class ParticipantsService {
     if (!postUrl.endsWith('/')) postUrl = '$postUrl/';
 
     try {
-      // 2) Старт джоби
+      // 1) Старт джоби
       final start = await _dio.post(
         '/api/fetch_participants_async',
         data: {'post_url': postUrl},
       );
 
-      // Нормальна відповідь — 202
+      // Явна обробка 429 від бекенду (обмеження черги або IG-rate-limit)
+      if (start.statusCode == 429) {
+        final body = start.data is Map
+            ? (start.data as Map).cast<String, dynamic>()
+            : null;
+        final code = (body?['error'] as String?) ??
+            'too_many_jobs'; // дефолт — ліміт черги
+        final ra = _retryAfterSeconds(start, body);
+        final det = body?['detail'] as String?;
+        throw ApiException(code, detail: det, status: 429, retryAfterSec: ra);
+      }
+
       if (start.statusCode != 202 || start.data is! Map) {
-        // Якщо бек дав зрозумілий error — віддай його
         if (start.data is Map && (start.data['error'] as String?) != null) {
           final code = start.data['error'] as String;
           final detail = start.data['detail'] as String?;
-          throw ApiException(code, detail: detail);
+          throw ApiException(code, detail: detail, status: start.statusCode);
         }
-        throw ApiException('server_error', detail: 'unexpected start response');
+        throw ApiException('server_error',
+            detail: 'unexpected start response', status: start.statusCode);
       }
 
       final jobId = (start.data['job_id'] ?? '') as String;
@@ -52,7 +69,7 @@ class ParticipantsService {
         throw ApiException('server_error', detail: 'empty job id');
       }
 
-      // 3) Полінг статусу
+      // 2) Полінг статусу
       final statusPath = '/api/job_status/$jobId';
       const pollEvery = Duration(seconds: 2);
       const maxWait = Duration(seconds: 90);
@@ -63,7 +80,8 @@ class ParticipantsService {
         final r = await _dio.get(statusPath);
 
         if (r.statusCode != 200 || r.data is! Map) {
-          throw ApiException('server_error', detail: 'bad status response');
+          throw ApiException('server_error',
+              detail: 'bad status response', status: r.statusCode);
         }
 
         final status = (r.data['status'] as String?)?.toLowerCase() ?? '';
@@ -76,7 +94,7 @@ class ParticipantsService {
         }
       }
 
-      // 4) Результат
+      // 3) Результат
       final res = await _dio.get('/api/job_result/$jobId');
 
       if (res.statusCode == 200 && res.data is Map) {
@@ -90,24 +108,37 @@ class ParticipantsService {
         return <Participant>[];
       }
 
-      // Якщо бек віддав помилку структуровано — підніми її як ApiException
       if (res.data is Map && (res.data['error'] as String?) != null) {
         final code = res.data['error'] as String;
         final detail = res.data['detail'] as String?;
-        throw ApiException(code, detail: detail);
+        throw ApiException(code, detail: detail, status: res.statusCode);
       }
 
       throw ApiException('server_error',
-          detail: 'code ${res.statusCode}: unexpected result');
+          detail: 'code ${res.statusCode}: unexpected result',
+          status: res.statusCode);
     } on DioException catch (e) {
-      // Мапінг 400 invalid_post_url з бекенду
       final r = e.response;
+
+      // Прямий 429 через DioException (Ingress/CDN або бекенд)
+      if (r?.statusCode == 429) {
+        final body =
+            r?.data is Map ? (r!.data as Map).cast<String, dynamic>() : null;
+        final code = (body?['error'] as String?) ??
+            'too_many_jobs'; // або 'rate_limited' якщо бек так віддає
+        final ra = (r != null) ? _retryAfterSeconds(r, body) : 3600;
+        final det = body?['detail'] as String?;
+        throw ApiException(code, detail: det, status: 429, retryAfterSec: ra);
+      }
+
+      // 400 invalid_post_url — як і було
       if (r?.statusCode == 400 &&
           r?.data is Map &&
           (r!.data['error'] as String?) == 'invalid_post_url') {
         throw ApiException('invalid_post_url',
-            detail: r.data['detail'] as String?);
+            detail: r.data['detail'] as String?, status: 400);
       }
+
       throw ApiException.fromDio(e);
     }
   }
