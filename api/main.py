@@ -1,4 +1,5 @@
 # api/main.py
+USE_PROXY_ENV = os.getenv("USE_PROXY", "false").lower() == "true"
 import os
 import sys
 import json
@@ -300,12 +301,12 @@ def fetch_async():
         settings_b64 = base64.b64encode(
             json.dumps(session["ig_settings"]).encode()
         ).decode()
-
+        use_proxy = USE_PROXY_ENV
         job = queue.enqueue(
             fetch_participants_task,
             settings_b64,
             post_url,
-            False,                 # use_proxy
+            use_proxy,                # use_proxy
             data.get('device_info'),
             data.get('region'),
             job_timeout=600,
