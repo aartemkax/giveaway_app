@@ -1,5 +1,4 @@
 # api/main.py
-USE_PROXY_ENV = os.getenv("USE_PROXY", "false").lower() == "true"
 import os
 import sys
 import json
@@ -14,7 +13,7 @@ from flask_cors import CORS
 from flask_session import Session
 from dotenv import load_dotenv
 from redis import Redis
-from rq import Queue
+from rq import Queue, Retry             
 from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import timedelta
 from rq import Retry
@@ -28,7 +27,10 @@ from device_emulator import emulate_device
 from tasks import fetch_participants_task
 
 # ── Init & logging ─────────────────────────────────────────────────────────────
-load_dotenv()
+USE_PROXY_ENV = os.getenv("USE_PROXY", "false").lower() == "true"
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+CORS_ORIGIN = os.getenv("CORS_ORIGIN", "").strip()
+
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
 
@@ -45,7 +47,6 @@ app.config.update(
 )
 
 # ── Redis/Session (one source of truth) ─────────────────
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 _tls = {"ssl_cert_reqs": None} if redis_url.startswith("rediss://") else {}
 app.config["SESSION_REDIS"] = Redis.from_url(redis_url, **_tls)
 
@@ -70,7 +71,7 @@ CORS(
 )
 
 # ── Redis & RQ ─────────────────────────────────────────
-redis_conn = Redis.from_url(redis_url)
+redis_conn = Redis.from_url(redis_url, **_tls)
 queue = Queue(connection=redis_conn)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
