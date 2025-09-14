@@ -88,11 +88,6 @@ class AppLocalizationsFr extends AppLocalizations {
       'Trop de requêtes. Veuillez patienter quelques minutes.';
 
   @override
-  String error_too_many_jobs(int active, int limit, String mm, String ss) {
-    return 'Queue is busy. You already have $active of $limit active tasks. Try again in $mm:$ss.';
-  }
-
-  @override
   String get error_session_expired =>
       'Session expirée. Veuillez vous reconnecter.';
 
