@@ -10,9 +10,10 @@ class ParticipantsService {
   final Dio _dio = ApiClient().dio;
 
   static final RegExp _igPostRe = RegExp(
-    r'^https?:\/\/(www\.)?instagram\.com\/p\/[^\/\s]+\/?$',
+    r'^https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/[^\/\s]+\/?$',
     caseSensitive: false,
   );
+
   bool _isValidPostUrl(String url) => _igPostRe.hasMatch(url.trim());
 
   // Безпечне читання полів з Map без body?['x']
@@ -29,15 +30,25 @@ class ParticipantsService {
     return b ?? 3600;
   }
 
-  Future<List<Participant>> fetchParticipants(
-    String postUrl, {
-    required BuildContext context,
-  }) async {
-    postUrl = postUrl.trim();
-    if (postUrl.isEmpty || !_isValidPostUrl(postUrl)) {
+  String _normalizeIgUrl(String url) {
+    var s = url.trim();
+    if (s.isEmpty) return s;
+    if (!s.toLowerCase().startsWith('http')) {
+      s = 'https://$s';
+    }
+    final u = Uri.tryParse(s);
+    if (u == null || (u.host.isEmpty && u.authority.isEmpty)) return s;
+    var base = '${u.scheme}://${u.host}${u.path}';
+    if (!base.endsWith('/')) base += '/';
+    return base; // без query/fragment
+  }
+
+  Future<List<Participant>> fetchParticipants(String postUrl,
+      {required BuildContext context}) async {
+    postUrl = _normalizeIgUrl(postUrl);
+    if (!_isValidPostUrl(postUrl)) {
       throw ApiException('invalid_post_url');
     }
-    if (!postUrl.endsWith('/')) postUrl = '$postUrl/';
 
     try {
       final start = await _dio.post(

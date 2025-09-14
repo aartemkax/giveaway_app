@@ -21,7 +21,7 @@ from prometheus_client import Summary, Counter
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Конфіг
-URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/p/[^/]+/?$")
+URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|tv)/[^/]+/?$")
 
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_conn = Redis.from_url(redis_url)

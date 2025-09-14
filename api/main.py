@@ -81,7 +81,7 @@ redis_conn = Redis.from_url(redis_url, **_tls)
 queue = Queue(connection=redis_conn)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/p/[^/]+/?$")
+URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|tv)/[^/]+/?$")
 MENTION_RE = re.compile(r'@([A-Za-z0-9._]+)')
 
 def _canon_key(p):
@@ -293,18 +293,20 @@ def fetch_async():
         logger.warning("FETCH_ASYNC: ig_settings missing in session -> session_expired")
         return jsonify({'error': 'login_required', 'detail': 'session_expired'}), 401
 
+    # ⬇️ ОТРИМАТИ ТІЛО + НОРМАЛІЗАЦІЯ URL
     data = request.get_json(force=True) or {}
-    post_url = (data.get('post_url') or '').strip()
+    raw = (data.get('post_url') or '').strip()
+    post_url = raw.split('?', 1)[0].split('#', 1)[0]
     if post_url and not post_url.endswith('/'):
         post_url += '/'
 
-    logger.info("FETCH_ASYNC: parsed post_url=%s", post_url)
+    logger.info("FETCH_ASYNC: normalized post_url=%s", post_url)
 
     if not URL_PATTERN.match(post_url):
         logger.warning("FETCH_ASYNC: invalid_post_url")
         return jsonify({'error': 'invalid_post_url'}), 400
 
-    # Пер-користувацький лічильник у фіксованому вікні
+    # пер-користувацький ліміт у фіксованому вікні (залишаєш як було)
     session_cookie_name = app.config.get("SESSION_COOKIE_NAME", "session")
     sid = request.cookies.get(session_cookie_name)
     client_id = sid or request.remote_addr or "anon"
@@ -315,7 +317,6 @@ def fetch_async():
         redis_conn.expire(rl_key, QUEUE_RATE_LIMIT_WINDOW_SEC)
 
     if n > MAX_ACTIVE_JOBS_PER_USER:
-        # залишаємо лічильник як є — це rate-limit у вікні, не "конкурентні активні задачі"
         ttl = redis_conn.ttl(rl_key)
         retry_after = ttl if isinstance(ttl, int) and ttl > 0 else QUEUE_RATE_LIMIT_WINDOW_SEC
         payload = {
@@ -328,7 +329,6 @@ def fetch_async():
         resp = jsonify(payload)
         resp.status_code = 429
         resp.headers['Retry-After'] = str(retry_after)
-        # діагностичні, необов’язкові:
         resp.headers['X-RateLimit-Limit'] = str(MAX_ACTIVE_JOBS_PER_USER)
         resp.headers['X-RateLimit-Remaining'] = str(max(0, MAX_ACTIVE_JOBS_PER_USER - (n - 1)))
         resp.headers['X-RateLimit-Reset'] = str(retry_after)
@@ -336,12 +336,11 @@ def fetch_async():
 
     try:
         settings_b64 = base64.b64encode(json.dumps(session["ig_settings"]).encode()).decode()
-        use_proxy = USE_PROXY_ENV
         job = queue.enqueue(
             fetch_participants_task,
             settings_b64,
             post_url,
-            use_proxy,
+            USE_PROXY_ENV,
             data.get('device_info'),
             data.get('region'),
             job_timeout=600,
