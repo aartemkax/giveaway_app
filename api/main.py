@@ -6,30 +6,40 @@ import base64
 import logging
 import re
 import time
+import hashlib
+import random
 import concurrent.futures as futures
+from datetime import timedelta
 
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_session import Session
 from dotenv import load_dotenv
 from redis import Redis
-from rq import Queue, Retry             
+from rq import Queue, Retry
 from werkzeug.middleware.proxy_fix import ProxyFix
-from datetime import timedelta
-from rq import Retry
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from instagrapi import Client
-from instagrapi.exceptions import (BadPassword, ChallengeRequired, TwoFactorRequired,
-    UserNotFound, PleaseWaitFewMinutes, LoginRequired, ClientError,)
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from instagrapi.exceptions import (
+    BadPassword, ChallengeRequired, TwoFactorRequired,
+    UserNotFound, PleaseWaitFewMinutes, LoginRequired, ClientError,
+)
 
 from device_emulator import emulate_device
 from tasks import fetch_participants_task
 
 # ── Init & logging ─────────────────────────────────────────────────────────────
+load_dotenv()
+
 USE_PROXY_ENV = os.getenv("USE_PROXY", "false").lower() == "true"
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-CORS_ORIGIN = os.getenv("CORS_ORIGIN", "").strip()
+
+# Ліміт постановки задач користувачем у фіксованому вікні
+MAX_ACTIVE_JOBS_PER_USER = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "3"))
+QUEUE_RATE_LIMIT_WINDOW_SEC = int(os.getenv("QUEUE_RATE_LIMIT_WINDOW_SEC", "3600"))  # 1h вікно
+
+LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
@@ -45,14 +55,11 @@ app.config.update(
     SESSION_COOKIE_SAMESITE=os.getenv("SESSION_COOKIE_SAMESITE", "None"),
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true",
 )
-
-# ── Redis/Session (one source of truth) ─────────────────
 _tls = {"ssl_cert_reqs": None} if redis_url.startswith("rediss://") else {}
 app.config["SESSION_REDIS"] = Redis.from_url(redis_url, **_tls)
-
 Session(app)
 
-# CORS …
+# CORS
 allowed = [
     re.compile(r"^http://localhost:\d+$"),
     re.compile(r"^http://127\.0\.0\.1:\d+$"),
@@ -60,7 +67,6 @@ allowed = [
 railway_origin = os.getenv("CORS_ORIGIN", "").strip()
 if railway_origin:
     allowed.append(railway_origin)
-
 CORS(
     app,
     supports_credentials=True,
@@ -76,7 +82,39 @@ queue = Queue(connection=redis_conn)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/p/[^/]+/?$")
-LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
+MENTION_RE = re.compile(r'@([A-Za-z0-9._]+)')
+
+def _canon_key(p):
+    u = str((p.get('username') or '')).lower()
+    pid = str(p.get('id') or p.get('pk') or '')
+    t = str(p.get('text') or p.get('comment') or '')
+    return (u, pid, t)
+
+def _filter_participants(items, *, dedupe_usernames=False,
+                         require_mentions=0, require_hashtag=None,
+                         blacklist=None):
+    out = []
+    seen = set()
+    tag = (require_hashtag or '').strip()
+    tag_lc = tag.lower()
+    bl = {x.lower() for x in (blacklist or [])}
+
+    for p in items:
+        u = str((p.get('username') or '')).strip()
+        if not u or u.lower() in bl:
+            continue
+        txt = str(p.get('text') or p.get('comment') or '')
+        if require_mentions > 0 and len(MENTION_RE.findall(txt)) < require_mentions:
+            continue
+        if tag_lc and f'#{tag_lc}' not in txt.lower():
+            continue
+        if dedupe_usernames:
+            key = u.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+        out.append(p)
+    return out
 
 @app.before_request
 def _log_request():
@@ -108,11 +146,10 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
     cl.private.headers.update({"User-Agent": ua})
 
     logger.info("instagrapi login: start user=%s", username)
-    proxy_url = os.getenv("PROXY_URL")  # опційно: додаси у Railway, якщо треба
+    proxy_url = os.getenv("PROXY_URL")
     if proxy_url:
         cl.set_proxy(proxy_url)
 
-    # невеликі паузи між мережевими викликами instagrapi
     cl.delay_range = [2, 5]
     cl.login(username, password)
     logger.info("instagrapi login: success user=%s", username)
@@ -122,13 +159,10 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
     return sess
 
 # ── LOGIN ──────────────────────────────────────────────────────────────────────
-# payload: { username, password, deviceInfo }
-# return: 200 { settings } + сервер зберігає session["ig_settings"] (cookie)
-# --- У /api/login перенеси emulate_device всередину try та повертай 400 на помилках ---
 @app.route('/api/login', methods=['POST', 'OPTIONS'])
 def login():
     if request.method == 'OPTIONS':
-        return '', 204  # preflight OK
+        return '', 204
 
     data = request.get_json(silent=True) or {}
     username   = (data.get('username') or '').strip()
@@ -137,14 +171,12 @@ def login():
 
     logger.info("LOGIN start for user=%s", username)
 
-    # дефолти – щоб емулятор не падав на порожніх полях
     raw_device.setdefault("userAgent", "Instagram 269.0.0.18.75 Android")
     raw_device.setdefault("platform", "Android")
     raw_device.setdefault("locale", "uk-UA")
     raw_device.setdefault("timezoneOffset", 180)
     raw_device.setdefault("screen", {"width": 1080, "height": 1920, "pixelRatio": 3})
 
-    # ⚓️ стабільний «девайс»: беремо з сесії або створюємо 1 раз
     try:
         emu = session.get('emu_cache')
         if not emu:
@@ -168,7 +200,6 @@ def login():
                         'detail': f'Login took longer than {LOGIN_TIMEOUT_SEC}s'}), 504
 
     except (BadPassword, UserNotFound):
-        # і “пароль невірний”, і “юзера не існує” — однаково
         return jsonify({'error': 'invalid_credentials'}), 401
 
     except ChallengeRequired:
@@ -184,7 +215,6 @@ def login():
         return jsonify({'error': 'login_required'}), 401
 
     except ClientError as e:
-        # інколи “підозрілий логін” маскується під "user not found"
         msg = str(e)
         suspicious_signs = (
             "doesn't belong to an account",
@@ -205,9 +235,7 @@ def login():
     finally:
         logger.info("Login %s finished", username)
 
-    # успішний логін
     session["ig_settings"] = session_settings
-    # корисно також оновити кеш «девайсу» settings-ами, що повернув клієнт
     session['emu_cache'] = {'settings': session_settings, 'device_agent': ua}
     return jsonify({'settings': session_settings}), 200
 
@@ -215,7 +243,7 @@ def login():
 @app.route('/api/collect_device_geo', methods=['POST', 'OPTIONS'])
 def collect_device_geo():
     if request.method == 'OPTIONS':
-        return '', 204  # preflight OK
+        return '', 204
     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
     try:
         import requests as _rq
@@ -224,11 +252,10 @@ def collect_device_geo():
         geo = {}
     return jsonify({"geo": geo, "ip": ip})
 
-# --- ЗАМІНИ роут /api/device_report на більш «терплячий» ---
 @app.route('/api/device_report', methods=['POST', 'OPTIONS'])
 def device_report():
     if request.method == 'OPTIONS':
-        return '', 204  # preflight OK
+        return '', 204
 
     data = request.get_json(silent=True) or {}
     info = data.get('deviceInfo') or data or {}
@@ -241,7 +268,7 @@ def device_report():
 
     try:
         emu = emulate_device(info, use_phone_code=True)
-        session['emu_cache'] = emu          # 👈 обов'язково покласти в сесію
+        session['emu_cache'] = emu
         return jsonify(emu), 200
     except Exception as e:
         msg = str(e)
@@ -249,12 +276,12 @@ def device_report():
         return jsonify({"error":"proxy_blocked","detail":"csrf_missing"}), 502
     return jsonify({"error":"invalid_device_info","detail":msg}), 400
 
+# ── Async fetch with queue-limit 429 (distinct from IG 429) ────────────────────
 @app.route('/api/fetch_participants_async', methods=['POST', 'OPTIONS'])
 def fetch_async():
     if request.method == 'OPTIONS':
-        return '', 204  # preflight OK
+        return '', 204
 
-    # детальний лог
     try:
         raw_body = request.get_data(as_text=True)
     except Exception:
@@ -262,7 +289,6 @@ def fetch_async():
     logger.info("FETCH_ASYNC: cookies=<present:%s>", 'Cookie' in request.headers)
     logger.info("FETCH_ASYNC: body=%s", raw_body)
 
-    # потрібна активна інста-сесія
     if "ig_settings" not in session:
         logger.warning("FETCH_ASYNC: ig_settings missing in session -> session_expired")
         return jsonify({'error': 'login_required', 'detail': 'session_expired'}), 401
@@ -278,60 +304,122 @@ def fetch_async():
         logger.warning("FETCH_ASYNC: invalid_post_url")
         return jsonify({'error': 'invalid_post_url'}), 400
 
-    # ------- пер-клієнтний ліміт активних джоб -------
+    # Пер-користувацький лічильник у фіксованому вікні
     session_cookie_name = app.config.get("SESSION_COOKIE_NAME", "session")
     sid = request.cookies.get(session_cookie_name)
     client_id = sid or request.remote_addr or "anon"
 
-    active_key = f"rq:active:{client_id}"
-    max_active = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "3"))
+    rl_key = f"rq:rate:{client_id}"
+    n = redis_conn.incr(rl_key)
+    if n == 1:
+        redis_conn.expire(rl_key, QUEUE_RATE_LIMIT_WINDOW_SEC)
 
-    n = redis_conn.incr(active_key)
-    # тримаємо лічильник 2 хвилини (оновлюється кожним запитом)
-    redis_conn.expire(active_key, 120)
-
-    if n > max_active:
-        # повертаємо інкремент, щоб не «зависав» ліміт
-        try:
-            redis_conn.decr(active_key)
-        except Exception:
-            pass
-        return jsonify({'error': 'rate_limited', 'detail': 'too_many_jobs'}), 429
+    if n > MAX_ACTIVE_JOBS_PER_USER:
+        # залишаємо лічильник як є — це rate-limit у вікні, не "конкурентні активні задачі"
+        ttl = redis_conn.ttl(rl_key)
+        retry_after = ttl if isinstance(ttl, int) and ttl > 0 else QUEUE_RATE_LIMIT_WINDOW_SEC
+        payload = {
+            'error': 'too_many_jobs',
+            'limit': MAX_ACTIVE_JOBS_PER_USER,
+            'active': min(n - 1, MAX_ACTIVE_JOBS_PER_USER),
+            'retryAfter': retry_after,
+            'detail': 'active jobs limit hit in fixed window'
+        }
+        resp = jsonify(payload)
+        resp.status_code = 429
+        resp.headers['Retry-After'] = str(retry_after)
+        # діагностичні, необов’язкові:
+        resp.headers['X-RateLimit-Limit'] = str(MAX_ACTIVE_JOBS_PER_USER)
+        resp.headers['X-RateLimit-Remaining'] = str(max(0, MAX_ACTIVE_JOBS_PER_USER - (n - 1)))
+        resp.headers['X-RateLimit-Reset'] = str(retry_after)
+        return resp
 
     try:
-        settings_b64 = base64.b64encode(
-            json.dumps(session["ig_settings"]).encode()
-        ).decode()
+        settings_b64 = base64.b64encode(json.dumps(session["ig_settings"]).encode()).decode()
         use_proxy = USE_PROXY_ENV
         job = queue.enqueue(
             fetch_participants_task,
             settings_b64,
             post_url,
-            use_proxy,                # use_proxy
+            use_proxy,
             data.get('device_info'),
             data.get('region'),
             job_timeout=600,
             result_ttl=3600,
             retry=Retry(max=3, interval=[30, 120, 300]),
-            meta={'client_id': client_id}  # опційно: для дебагу
+            meta={'client_id': client_id}
         )
         logger.info("FETCH_ASYNC: enqueued job_id=%s for %s", job.id, post_url)
         return jsonify({'job_id': job.id}), 202
 
     except Exception as e:
-        # якщо enqueue звалився — відкотимо лічильник
-        try:
-            redis_conn.decr(active_key)
-        except Exception:
-            pass
         logger.exception("FETCH_ASYNC: enqueue failed")
         return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
+
+# ── Deterministic draw ─────────────────────────────────────────────────────────
+@app.route('/api/draw', methods=['POST', 'OPTIONS'])
+def draw():
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    data = request.get_json(silent=True) or {}
+    participants = data.get('participants') or []
+    if not isinstance(participants, list) or not participants:
+        return jsonify({'error':'validation_error','detail':'participants required'}), 400
+
+    try:
+        n = max(1, int(data.get('n') or 1))
+    except Exception:
+        return jsonify({'error':'validation_error','detail':'invalid n'}), 400
+
+    rules = data.get('rules') or {}
+    dedupe = bool(rules.get('dedupe_usernames', False))
+    req_mentions = int(rules.get('require_mentions') or 0)
+    req_hashtag = (rules.get('require_hashtag') or '').strip()
+    blacklist = rules.get('blacklist') or []
+
+    filt = _filter_participants(
+        participants,
+        dedupe_usernames=dedupe,
+        require_mentions=req_mentions,
+        require_hashtag=req_hashtag,
+        blacklist=blacklist
+    )
+    if not filt:
+        return jsonify({'error':'validation_error','detail':'no eligible participants'}), 400
+
+    canon = sorted(filt, key=_canon_key)
+
+    seed = str(data.get('seed') or f"{int(time.time())}:{request.remote_addr or ''}")
+    basis = json.dumps(canon, ensure_ascii=False, sort_keys=True, separators=(',',':')) + '|' + seed
+    h = hashlib.sha256(basis.encode('utf-8')).hexdigest()
+    rnd = random.Random(int(h[:16], 16))
+
+    pool = canon[:]
+    rnd.shuffle(pool)
+
+    k = min(n, len(pool))
+    winners = pool[:k]
+
+    return jsonify({
+        'winners': winners,
+        'count': k,
+        'eligible': len(canon),
+        'proof': h,
+        'seed': seed,
+        'rules': {
+            'dedupe_usernames': dedupe,
+            'require_mentions': req_mentions,
+            'require_hashtag': req_hashtag,
+            'blacklist': blacklist,
+        }
+    }), 200
 
 # ── Job status & result ────────────────────────────────────────────────────────
 @app.route('/api/job_status/<job_id>', methods=['GET', 'OPTIONS'])
 def job_status(job_id):
     if request.method == 'OPTIONS':
-        return '', 204  # preflight OK
+        return '', 204
     job = queue.fetch_job(job_id)
     if not job:
         return jsonify({'error': 'not_found'}), 404
@@ -340,7 +428,7 @@ def job_status(job_id):
 @app.route('/api/job_result/<job_id>', methods=['GET', 'OPTIONS'])
 def job_result(job_id):
     if request.method == 'OPTIONS':
-        return '', 204  # preflight OK
+        return '', 204
     job = queue.fetch_job(job_id)
     if not job:
         return jsonify({'error': 'not_found'}), 404
@@ -353,7 +441,7 @@ def job_result(job_id):
         return jsonify({'error': 'internal_error', 'detail': str(job.exc_info)}), 500
     return jsonify({'status': job.get_status()}), 202
 
-# ── Debug (для Flutter) ───────────────────────────────────────────────────────
+# ── Debug ──────────────────────────────────────────────────────────────────────
 @app.route('/api/debug_session', methods=['GET'])
 def debug_session():
     return jsonify({
@@ -361,10 +449,14 @@ def debug_session():
         "ig_settings_present": "ig_settings" in session
     }), 200
 
-# ── Health ────────────────────────────────────────────────────────────────────
+# ── Health & Metrics ───────────────────────────────────────────────────────────
 @app.route('/healthz', methods=['GET'])
 def healthz():
     return jsonify({"ok": True}), 200
+
+@app.get("/metrics")
+def metrics():
+    return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
@@ -379,10 +471,12 @@ def index():
             "/api/fetch_participants_async",
             "/api/job_status/<job_id>",
             "/api/job_result/<job_id>",
+            "/api/draw",
             "/api/debug_session",
         ]
     }), 200
 
+# ── Session auth utils ─────────────────────────────────────────────────────────
 @app.route('/api/login_by_sessionid', methods=['POST', 'OPTIONS'])
 def login_by_sessionid():
     if request.method == 'OPTIONS':
@@ -392,7 +486,6 @@ def login_by_sessionid():
     if not sid:
         return jsonify({'error': 'validation_error', 'detail': 'sessionid required'}), 400
 
-    # беремо стабільний «девайс» з кешу, або створюємо
     emu = session.get('emu_cache') or emulate_device({}, use_phone_code=True)
     cl = Client()
     cl.set_settings(emu['settings'])
@@ -417,13 +510,9 @@ def login_by_sessionid():
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
 def logout():
     if request.method == 'OPTIONS':
-        return '', 204  # CORS preflight
+        return '', 204
     session.clear()
     return jsonify({'ok': True}), 200
-
-@app.get("/metrics")
-def metrics():
-    return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)
