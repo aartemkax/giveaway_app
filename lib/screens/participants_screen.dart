@@ -11,6 +11,7 @@ import '../widgets/participant_card.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:giveaway_app/services/api_client.dart';
+import 'package:giveaway_app/utils/error_messages.dart';
 
 class ParticipantsScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
@@ -94,33 +95,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         _showCelebration = true;
       });
     } on ApiException catch (e) {
-      final loc = AppLocalizations.of(context)!;
-      String message;
-      switch (e.code) {
-        case 'invalid_post_url':
-          message = loc.error_invalid_post_url;
-          break;
-        case 'post_unavailable':
-          message = loc.error_post_unavailable;
-          break;
-        case 'rate_limited':
-          message = loc.error_rate_limited;
-          break;
-        case 'proxy_blocked':
-          message = loc.error_proxy_blocked;
-          break;
-        case 'login_required':
-          message = loc.error_login_required;
-          break;
-        case 'invalid_credentials':
-          message = loc.error_invalid_credentials;
-          break;
-        case 'internal_error':
-          message = loc.error_internal_error;
-          break;
-        default:
-          message = loc.error_generic(e.code);
-      }
+      final message = humanizeApiError(context, e);
       if (!mounted) return;
       if (e.code == 'login_required' || e.code == 'invalid_credentials') {
         Navigator.of(context).pushReplacementNamed('/login');
@@ -130,8 +105,10 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(AppLocalizations.of(context)!.error_internal_error)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.error_internal_error)),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }

@@ -1,4 +1,3 @@
-// lib/services/participants_service.dart
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
@@ -10,31 +9,30 @@ import '../utils/api_exception.dart';
 class ParticipantsService {
   final Dio _dio = ApiClient().dio;
 
-  // Чітка перевірка посилання на пост
   static final RegExp _igPostRe = RegExp(
     r'^https?:\/\/(www\.)?instagram\.com\/p\/[^\/\s]+\/?$',
     caseSensitive: false,
   );
-
   bool _isValidPostUrl(String url) => _igPostRe.hasMatch(url.trim());
 
-  int _retryAfterSeconds(Response r, dynamic body) {
+  // Безпечне читання полів з Map без body?['x']
+  T? _get<T>(Map<String, dynamic>? m, String k) {
+    final v = m == null ? null : m[k];
+    return v is T ? v : null;
+  }
+
+  int _retryAfterSeconds(Response r, Map<String, dynamic>? body) {
     final h = r.headers.value('retry-after');
     final hv = h == null ? null : int.tryParse(h.trim());
-    if (hv != null && hv >= 0) {
-      return hv;
-    }
-    if (body is Map && body['retryAfter'] is int) {
-      return body['retryAfter'] as int;
-    }
-    return 3600; // фолбек під RQ_DEFAULT_RESULT_TTL
+    if (hv != null && hv >= 0) return hv;
+    final b = _get<int>(body, 'retryAfter');
+    return b ?? 3600;
   }
 
   Future<List<Participant>> fetchParticipants(
     String postUrl, {
     required BuildContext context,
   }) async {
-    // 1) Клієнтська валідація
     postUrl = postUrl.trim();
     if (postUrl.isEmpty || !_isValidPostUrl(postUrl)) {
       throw ApiException('invalid_post_url');
@@ -42,22 +40,28 @@ class ParticipantsService {
     if (!postUrl.endsWith('/')) postUrl = '$postUrl/';
 
     try {
-      // 2) Старт джоби
       final start = await _dio.post(
         '/api/fetch_participants_async',
         data: {'post_url': postUrl},
       );
 
-      // Явна обробка 429 від бекенду (обмеження черги або IG-rate-limit)
+      // 429 одразу на старті
       if (start.statusCode == 429) {
         final body = start.data is Map
             ? (start.data as Map).cast<String, dynamic>()
             : null;
-        final code = (body?['error'] as String?) ??
-            'too_many_jobs'; // дефолт — ліміт черги
+        final code = _get<String>(body, 'error') ?? 'too_many_jobs';
+        final det =
+            _get<String>(body, 'detail') ?? _get<String>(body, 'message');
         final ra = _retryAfterSeconds(start, body);
-        final det = body?['detail'] as String?;
-        throw ApiException(code, detail: det, status: 429, retryAfterSec: ra);
+        final active = _get<int>(body, 'active');
+        final limit = _get<int>(body, 'limit');
+        throw ApiException(code,
+            detail: det,
+            status: 429,
+            retryAfterSec: ra,
+            active: active,
+            limit: limit);
       }
 
       if (start.statusCode != 202 || start.data is! Map) {
@@ -75,7 +79,7 @@ class ParticipantsService {
         throw ApiException('server_error', detail: 'empty job id');
       }
 
-      // 3) Полінг статусу
+      // Полінг статусу
       final statusPath = '/api/job_status/$jobId';
       const pollEvery = Duration(seconds: 2);
       const maxWait = Duration(seconds: 90);
@@ -100,7 +104,7 @@ class ParticipantsService {
         }
       }
 
-      // 4) Результат
+      // Результат
       final res = await _dio.get('/api/job_result/$jobId');
 
       if (res.statusCode == 200 && res.data is Map) {
@@ -126,21 +130,25 @@ class ParticipantsService {
     } on DioException catch (e) {
       final r = e.response;
 
-      // Прямий 429 через DioException (Ingress/CDN або бекенд)
+      // 429 у catch
       if (r != null && r.statusCode == 429) {
         Map<String, dynamic>? body;
-        if (r.data is Map) {
-          body = (r.data as Map).cast<String, dynamic>();
-        }
-        final code = (body?['error'] as String?) ??
-            'too_many_jobs'; // або 'rate_limited' якщо IG
+        if (r.data is Map) body = (r.data as Map).cast<String, dynamic>();
+        final code = _get<String>(body, 'error') ?? 'too_many_jobs';
         final det =
-            (body?['detail'] as String?) ?? (body?['message'] as String?);
+            _get<String>(body, 'detail') ?? _get<String>(body, 'message');
         final ra = _retryAfterSeconds(r, body);
-        throw ApiException(code, detail: det, status: 429, retryAfterSec: ra);
+        final active = _get<int>(body, 'active');
+        final limit = _get<int>(body, 'limit');
+        throw ApiException(code,
+            detail: det,
+            status: 429,
+            retryAfterSec: ra,
+            active: active,
+            limit: limit);
       }
 
-      // 400 invalid_post_url — як і було
+      // 400 invalid_post_url
       if (r?.statusCode == 400 &&
           r?.data is Map &&
           (r!.data['error'] as String?) == 'invalid_post_url') {
