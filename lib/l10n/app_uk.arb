@@ -114,8 +114,8 @@
     "description": "Показувати, коли бекенд повернув proxy_blocked (403)"
   },
 
-  "error_rate_limited": "Забагато запитів. Зачекайте кілька хвилин.",
-  "@error_rate_limited": {
+  "too_many_jobs": "Забагато запитів. Зачекайте кілька хвилин.",
+  "@too_many_jobs": {
     "description": "Показувати, коли Instagram rate-limit (429)"
   },
 

@@ -236,7 +236,7 @@ abstract class AppLocalizations {
   ///
   /// In en, this message translates to:
   /// **'Too many requests. Please wait a few minutes.'**
-  String get error_rate_limited;
+  String get too_many_jobs;
 
   /// detail == "session_expired" (HTTP 401)
   ///

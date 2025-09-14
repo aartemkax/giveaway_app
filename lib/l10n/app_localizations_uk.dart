@@ -82,7 +82,7 @@ class AppLocalizationsUk extends AppLocalizations {
   String get error_proxy_blocked => 'Ваш проксі заблоковано.';
 
   @override
-  String get error_rate_limited => 'Забагато запитів. Зачекайте кілька хвилин.';
+  String get too_many_jobs => 'Забагато запитів. Зачекайте кілька хвилин.';
 
   @override
   String get error_session_expired => 'Сесія закінчилася. Увійдіть знову.';

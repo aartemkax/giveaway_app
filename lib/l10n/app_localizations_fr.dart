@@ -84,8 +84,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get error_proxy_blocked => 'Votre proxy est bloqué.';
 
   @override
-  String get error_rate_limited =>
-      'Trop de requêtes. Veuillez patienter quelques minutes.';
+  String get too_many_jobs => 'Too many requests. Please wait a few minutes.';
 
   @override
   String get error_session_expired =>
