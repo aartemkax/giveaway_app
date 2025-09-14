@@ -10,18 +10,23 @@ import '../utils/api_exception.dart';
 class ParticipantsService {
   final Dio _dio = ApiClient().dio;
 
+  // Чітка перевірка посилання на пост
   static final RegExp _igPostRe = RegExp(
     r'^https?:\/\/(www\.)?instagram\.com\/p\/[^\/\s]+\/?$',
     caseSensitive: false,
   );
+
   bool _isValidPostUrl(String url) => _igPostRe.hasMatch(url.trim());
 
   int _retryAfterSeconds(Response r, dynamic body) {
     final h = r.headers.value('retry-after');
     final hv = h == null ? null : int.tryParse(h.trim());
-    if (hv != null && hv >= 0) return hv;
-    if (body is Map && body['retryAfter'] is int)
+    if (hv != null && hv >= 0) {
+      return hv;
+    }
+    if (body is Map && body['retryAfter'] is int) {
       return body['retryAfter'] as int;
+    }
     return 3600; // фолбек під RQ_DEFAULT_RESULT_TTL
   }
 
@@ -29,6 +34,7 @@ class ParticipantsService {
     String postUrl, {
     required BuildContext context,
   }) async {
+    // 1) Клієнтська валідація
     postUrl = postUrl.trim();
     if (postUrl.isEmpty || !_isValidPostUrl(postUrl)) {
       throw ApiException('invalid_post_url');
@@ -36,7 +42,7 @@ class ParticipantsService {
     if (!postUrl.endsWith('/')) postUrl = '$postUrl/';
 
     try {
-      // 1) Старт джоби
+      // 2) Старт джоби
       final start = await _dio.post(
         '/api/fetch_participants_async',
         data: {'post_url': postUrl},
@@ -69,7 +75,7 @@ class ParticipantsService {
         throw ApiException('server_error', detail: 'empty job id');
       }
 
-      // 2) Полінг статусу
+      // 3) Полінг статусу
       final statusPath = '/api/job_status/$jobId';
       const pollEvery = Duration(seconds: 2);
       const maxWait = Duration(seconds: 90);
@@ -94,7 +100,7 @@ class ParticipantsService {
         }
       }
 
-      // 3) Результат
+      // 4) Результат
       final res = await _dio.get('/api/job_result/$jobId');
 
       if (res.statusCode == 200 && res.data is Map) {
@@ -121,13 +127,16 @@ class ParticipantsService {
       final r = e.response;
 
       // Прямий 429 через DioException (Ingress/CDN або бекенд)
-      if (r?.statusCode == 429) {
-        final body =
-            r?.data is Map ? (r!.data as Map).cast<String, dynamic>() : null;
+      if (r != null && r.statusCode == 429) {
+        Map<String, dynamic>? body;
+        if (r.data is Map) {
+          body = (r.data as Map).cast<String, dynamic>();
+        }
         final code = (body?['error'] as String?) ??
-            'too_many_jobs'; // або 'rate_limited' якщо бек так віддає
-        final ra = (r != null) ? _retryAfterSeconds(r, body) : 3600;
-        final det = body?['detail'] as String?;
+            'too_many_jobs'; // або 'rate_limited' якщо IG
+        final det =
+            (body?['detail'] as String?) ?? (body?['message'] as String?);
+        final ra = _retryAfterSeconds(r, body);
         throw ApiException(code, detail: det, status: 429, retryAfterSec: ra);
       }
 
