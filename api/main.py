@@ -319,7 +319,7 @@ def fetch_async():
         ttl = redis_conn.ttl(rl_key)
         retry_after = ttl if isinstance(ttl, int) and ttl > 0 else QUEUE_RATE_LIMIT_WINDOW_SEC
         payload = {
-            'error': 'too_many_jobs',
+            'error': 'error_rate_limited',
             'limit': MAX_ACTIVE_JOBS_PER_USER,
             'active': min(n - 1, MAX_ACTIVE_JOBS_PER_USER),
             'retryAfter': retry_after,
