@@ -116,7 +116,18 @@
 
   "error_rate_limited": "Trop de requêtes. Veuillez patienter quelques minutes.",
   "@error_rate_limited": {
-    "description": "Shown when Instagram rate-limit is hit (HTTP 429)"
+    "description": "À afficher quand la limite de requêtes Instagram est atteinte (HTTP 429)"
+  },
+
+  "error_too_many_jobs": "La file d’attente est saturée. Vous avez déjà {active} tâches en cours sur {limit}. Réessayez dans {mm}:{ss}.",
+  "@error_too_many_jobs": {
+    "description": "Limite de la file d’attente de l’application atteinte (HTTP 429)",
+    "placeholders": {
+      "active": { "type": "int", "example": "3" },
+      "limit":  { "type": "int", "example": "3" },
+      "mm":     { "type": "String", "example": "59" },
+      "ss":     { "type": "String", "example": "59" }
+    }
   },
 
   "error_session_expired": "Session expirée. Veuillez vous reconnecter.",
