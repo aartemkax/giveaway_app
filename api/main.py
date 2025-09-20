@@ -55,7 +55,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
 app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1,
-    static_folder=os.path.join(BASE_DIR, "static"),  
+    static_folder=os.path.join(BASE_DIR, "static"), 
     static_url_path="/"
 )
 
