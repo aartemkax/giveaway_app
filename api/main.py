@@ -9,9 +9,10 @@ import time
 import hashlib
 import random
 import concurrent.futures as futures
+import secrets
 from datetime import timedelta
 
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify, session, current_app
 from flask_cors import CORS
 from flask_session import Session
 from dotenv import load_dotenv
@@ -19,6 +20,8 @@ from redis import Redis
 from rq import Queue, Retry
 from werkzeug.middleware.proxy_fix import ProxyFix
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from fb_graph import login_url as fb_login_url, exchange_code_for_token, exchange_long_lived, me, list_pages, ig_media, ig_comments
+
 
 from instagrapi import Client
 from instagrapi.exceptions import (
@@ -48,6 +51,8 @@ logger = logging.getLogger("api")
 app = Flask(__name__)
 app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1)
+app.static_folder = os.path.join(BASE_DIR, "static")
+app.static_url_path = "/"
 
 app.config.update(
     SECRET_KEY=os.getenv("FLASK_SECRET_KEY", "dev-secret-key"),
@@ -506,12 +511,129 @@ def login_by_sessionid():
     session['emu_cache'] = {'settings': session['ig_settings'], 'device_agent': cl.user_agent}
     return jsonify({'ok': True}), 200
 
+def _save_fb_tokens(user_token: str, expires_in: int):
+    session["fb_user_token"] = user_token
+    session["fb_token_expires_at"] = int(time.time()) + int(expires_in)
+
+def _require_fb():
+    tok = session.get("fb_user_token")
+    if not tok:
+        return None
+    # можна перевіряти просту просрочку:
+    if int(session.get("fb_token_expires_at", 0)) <= int(time.time()) + 60:
+        # TODO: оновлення через long-lived повторно або просити перелогін
+        pass
+    return tok
+
+@app.get("/api/fb/login_url")
+def fb_login_url_endpoint():
+    state = secrets.token_urlsafe(16)
+    session["fb_oauth_state"] = state
+    scopes = [
+        "public_profile","email",
+        "pages_show_list","pages_read_engagement",
+        "instagram_basic","instagram_manage_comments",
+    ]
+    return jsonify({"url": fb_login_url(state, scopes)})
+
+@app.get("/api/fb/callback")
+def fb_callback():
+    code  = request.args.get("code")
+    state = request.args.get("state")
+    if not code or state != session.get("fb_oauth_state"):
+        return jsonify({"error":"oauth_failed","detail":"state mismatch or no code"}), 400
+    try:
+        short = exchange_code_for_token(code)           # ~1h
+        longl = exchange_long_lived(short["access_token"])  # ~60 days
+        _save_fb_tokens(longl["access_token"], longl.get("expires_in", 60*24*3600))
+        who = me(longl["access_token"])
+        return jsonify({"ok": True, "me": who}), 200
+    except Exception as e:
+        logger.exception("fb callback failed")
+        return jsonify({"error":"oauth_failed","detail":str(e)}), 400
+    
+@app.get("/api/ig/accounts")
+def ig_accounts():
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error":"login_required","detail":"fb"}), 401
+    try:
+        pages = list_pages(tok)
+        # Витягнемо IG business акаунти (тільки де є instagram_business_account)
+        rows = []
+        for p in (pages.get("data") or []):
+            ig = (p.get("instagram_business_account") or {})
+            if ig.get("id"):
+                rows.append({
+                    "page_id": p.get("id"),
+                    "page_name": p.get("name"),
+                    "ig_user_id": ig.get("id"),
+                    "ig_username": ig.get("username"),
+                })
+        return jsonify({"accounts": rows}), 200
+    except Exception as e:
+        logger.exception("ig_accounts failed")
+        return jsonify({"error":"internal_error","detail":str(e)}), 500
+
+@app.get("/api/ig/media")
+def ig_media_list():
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error":"login_required","detail":"fb"}), 401
+    ig_user_id = request.args.get("ig_user_id","").strip()
+    after = request.args.get("after")
+    if not ig_user_id:
+        return jsonify({"error":"validation_error","detail":"ig_user_id required"}), 400
+    try:
+        m = ig_media(ig_user_id, tok, limit=50, after=after)
+        return jsonify(m), 200
+    except Exception as e:
+        logger.exception("ig_media_list failed")
+        return jsonify({"error":"internal_error","detail":str(e)}), 500
+
+@app.get("/api/ig/comments")
+def ig_comments_list():
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error":"login_required","detail":"fb"}), 401
+    media_id = request.args.get("media_id","").strip()
+    after = request.args.get("after")
+    if not media_id:
+        return jsonify({"error":"validation_error","detail":"media_id required"}), 400
+    try:
+        c = ig_comments(media_id, tok, limit=100, after=after)
+        # нормалізуємо до твоєї моделі participants
+        items = []
+        for row in (c.get("data") or []):
+            items.append({
+                "id": row.get("id"),
+                "username": row.get("username") or "",
+                "text": row.get("text") or "",
+                "timestamp": row.get("timestamp"),
+            })
+        res = {"participants": items, "paging": c.get("paging")}
+        return jsonify(res), 200
+    except Exception as e:
+        logger.exception("ig_comments failed")
+        return jsonify({"error":"internal_error","detail":str(e)}), 500
+
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
 def logout():
     if request.method == 'OPTIONS':
         return '', 204
     session.clear()
     return jsonify({'ok': True}), 200
+
+@app.get("/privacy")
+def privacy_page():
+    # віддасть api/static/privacy.html з кодом 200
+    return current_app.send_static_file("privacy.html")
+
+
+@app.get("/data-deletion")
+def data_deletion_page():
+    # віддасть api/static/data-deletion.html з кодом 200
+    return current_app.send_static_file("data-deletion.html")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)
