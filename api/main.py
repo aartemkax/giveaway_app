@@ -20,8 +20,20 @@ from redis import Redis
 from rq import Queue, Retry
 from werkzeug.middleware.proxy_fix import ProxyFix
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from fb_graph import login_url as fb_login_url, exchange_code_for_token, exchange_long_lived, me, list_pages, ig_media, ig_comments
-
+fb_import_error = None
+try:
+    from fb_graph import (
+        login_url as fb_login_url,
+        exchange_code_for_token,
+        exchange_long_lived,
+        me,
+        list_pages,
+        ig_media,
+        ig_comments,
+    )
+except Exception as e:
+    fb_import_error = e
+    fb_login_url = exchange_code_for_token = exchange_long_lived = me = list_pages = ig_media = ig_comments = None
 
 from instagrapi import Client
 from instagrapi.exceptions import (
@@ -47,17 +59,14 @@ LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
 
-load_dotenv()
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ── Flask (Session + CORS) ───────────────────────────
 app = Flask(__name__)
 app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1,
-    static_folder=os.path.join(BASE_DIR, "static"), 
-    static_url_path="/"
-)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1,)
+app.static_folder = os.path.join(BASE_DIR, "static")
+app.static_url_path = "/"
 
 app.config.update(
     SECRET_KEY=os.getenv("FLASK_SECRET_KEY", "dev-secret-key"),
@@ -530,8 +539,19 @@ def _require_fb():
         pass
     return tok
 
+def _ensure_fb_ready():
+    if fb_import_error:
+        return {"error":"fb_module_error","detail":str(fb_import_error)}, 503
+    missing = [k for k in ("FB_APP_ID","FB_APP_SECRET","FB_REDIRECT_URI") if not os.getenv(k)]
+    if missing:
+        return {"error":"fb_env_missing","detail":f"Missing env: {', '.join(missing)}"}, 503
+    return None
+
 @app.get("/api/fb/login_url")
 def fb_login_url_endpoint():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
     state = secrets.token_urlsafe(16)
     session["fb_oauth_state"] = state
     scopes = [
@@ -543,6 +563,9 @@ def fb_login_url_endpoint():
 
 @app.get("/api/fb/callback")
 def fb_callback():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
     code  = request.args.get("code")
     state = request.args.get("state")
     if not code or state != session.get("fb_oauth_state"):
@@ -559,6 +582,9 @@ def fb_callback():
     
 @app.get("/api/ig/accounts")
 def ig_accounts():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
     tok = _require_fb()
     if not tok:
         return jsonify({"error":"login_required","detail":"fb"}), 401
@@ -582,6 +608,9 @@ def ig_accounts():
 
 @app.get("/api/ig/media")
 def ig_media_list():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
     tok = _require_fb()
     if not tok:
         return jsonify({"error":"login_required","detail":"fb"}), 401
@@ -598,6 +627,9 @@ def ig_media_list():
 
 @app.get("/api/ig/comments")
 def ig_comments_list():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
     tok = _require_fb()
     if not tok:
         return jsonify({"error":"login_required","detail":"fb"}), 401
@@ -624,6 +656,9 @@ def ig_comments_list():
 
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
 def logout():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
     if request.method == 'OPTIONS':
         return '', 204
     session.clear()
