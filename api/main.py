@@ -47,12 +47,17 @@ LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
 
+load_dotenv()
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ── Flask (Session + CORS) ───────────────────────────
 app = Flask(__name__)
 app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1)
-app.static_folder = os.path.join(BASE_DIR, "static")
-app.static_url_path = "/"
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1,
+    static_folder=os.path.join(BASE_DIR, "static"),  
+    static_url_path="/"
+)
 
 app.config.update(
     SECRET_KEY=os.getenv("FLASK_SECRET_KEY", "dev-secret-key"),
