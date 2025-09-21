@@ -61,16 +61,20 @@ logger = logging.getLogger("api")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# знайдемо де насправді лежить 'static' у контейнері
+STATIC_CANDIDATES = [
+    os.path.join(BASE_DIR, "static"),        # /app/static  (коли api/ "сплющили")
+    os.path.join(BASE_DIR, "api", "static"), # /app/api/static (коли структура збережена)
+]
+STATIC_DIR = next((p for p in STATIC_CANDIDATES if os.path.isdir(p)), STATIC_CANDIDATES[0])
+
 app = Flask(
     __name__,
-    static_folder=os.path.join(BASE_DIR, "static"),
+    static_folder=STATIC_DIR,
     static_url_path="/static",
 )
 
-# скільки живе сесія (як і було)
 app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
-
-# proxy headers зберігаємо як і було
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1)
 
 app.config.update(
@@ -671,20 +675,32 @@ def logout():
 
 privacy_fp = os.path.join(app.static_folder, "privacy.html")
 deletion_fp = os.path.join(app.static_folder, "data-deletion.html")
-logger.info(
-    "STATIC init: folder=%s exists=%s | privacy=%s | deletion=%s",
-    app.static_folder,
-    os.path.isdir(app.static_folder),
-    os.path.exists(privacy_fp),
-    os.path.exists(deletion_fp),
-)
+logger.info("STATIC chosen: %s | exists=%s | privacy=%s | deletion=%s",
+            STATIC_DIR,
+            os.path.isdir(STATIC_DIR),
+            os.path.exists(os.path.join(STATIC_DIR, "privacy.html")),
+            os.path.exists(os.path.join(STATIC_DIR, "data-deletion.html")))
+
 @app.get("/privacy")
 def privacy_page():
-    return send_from_directory(os.path.join(BASE_DIR, "static"), "privacy.html")
+    return send_from_directory(STATIC_DIR, "privacy.html")
 
 @app.get("/data-deletion")
 def data_deletion_page():
-    return send_from_directory(os.path.join(BASE_DIR, "static"), "data-deletion.html")
+    return send_from_directory(STATIC_DIR, "data-deletion.html")
+
+@app.get("/__static_diag")
+def static_diag():
+    try:
+        files = sorted(os.listdir(STATIC_DIR))
+    except Exception as e:
+        files = [f"<error: {e}>"]
+    return jsonify({
+        "BASE_DIR": BASE_DIR,
+        "STATIC_DIR": STATIC_DIR,
+        "exists": os.path.isdir(STATIC_DIR),
+        "files": files,
+    }), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)
