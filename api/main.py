@@ -61,13 +61,17 @@ logger = logging.getLogger("api")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# ── Flask (Session + CORS) ───────────────────────────
-app = Flask(__name__)
-app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
-static_folder = os.path.join(BASE_DIR, "static")
-static_url_path = "/static",
+app = Flask(
+    __name__,
+    static_folder=os.path.join(BASE_DIR, "static"),
+    static_url_path="/static",
+)
 
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1,)
+# скільки живе сесія (як і було)
+app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
+
+# proxy headers зберігаємо як і було
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1)
 
 app.config.update(
     SECRET_KEY=os.getenv("FLASK_SECRET_KEY", "dev-secret-key"),
@@ -667,24 +671,20 @@ def logout():
 
 privacy_fp = os.path.join(app.static_folder, "privacy.html")
 deletion_fp = os.path.join(app.static_folder, "data-deletion.html")
-logging.getLogger("api").info(
+logger.info(
     "STATIC init: folder=%s exists=%s | privacy=%s | deletion=%s",
     app.static_folder,
     os.path.isdir(app.static_folder),
     os.path.exists(privacy_fp),
     os.path.exists(deletion_fp),
 )
-
 @app.get("/privacy")
 def privacy_page():
-    # віддасть api/static/privacy.html з кодом 200
-    return current_app.send_static_file("privacy.html")
-
+    return send_from_directory(os.path.join(BASE_DIR, "static"), "privacy.html")
 
 @app.get("/data-deletion")
 def data_deletion_page():
-    # віддасть api/static/data-deletion.html з кодом 200
-    return current_app.send_static_file("data-deletion.html")
+    return send_from_directory(os.path.join(BASE_DIR, "static"), "data-deletion.html")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)
