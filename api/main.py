@@ -12,7 +12,7 @@ import concurrent.futures as futures
 import secrets
 from datetime import timedelta
 
-from flask import Flask, request, jsonify, session, current_app
+from flask import Flask, send_from_directory, jsonify, request, session, current_app
 from flask_cors import CORS
 from flask_session import Session
 from dotenv import load_dotenv
@@ -64,9 +64,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ── Flask (Session + CORS) ───────────────────────────
 app = Flask(__name__)
 app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
+static_folder = os.path.join(BASE_DIR, "static")
+static_url_path = "/static",
+
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1,)
-app.static_folder = os.path.join(BASE_DIR, "static")
-app.static_url_path = "/"
 
 app.config.update(
     SECRET_KEY=os.getenv("FLASK_SECRET_KEY", "dev-secret-key"),
@@ -663,6 +664,16 @@ def logout():
         return '', 204
     session.clear()
     return jsonify({'ok': True}), 200
+
+privacy_fp = os.path.join(app.static_folder, "privacy.html")
+deletion_fp = os.path.join(app.static_folder, "data-deletion.html")
+logging.getLogger("api").info(
+    "STATIC init: folder=%s exists=%s | privacy=%s | deletion=%s",
+    app.static_folder,
+    os.path.isdir(app.static_folder),
+    os.path.exists(privacy_fp),
+    os.path.exists(deletion_fp),
+)
 
 @app.get("/privacy")
 def privacy_page():
