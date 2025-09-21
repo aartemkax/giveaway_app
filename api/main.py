@@ -681,14 +681,37 @@ logger.info("STATIC chosen: %s | exists=%s | privacy=%s | deletion=%s",
             os.path.exists(os.path.join(STATIC_DIR, "privacy.html")),
             os.path.exists(os.path.join(STATIC_DIR, "data-deletion.html")))
 
+INLINE_PRIVACY = """<!doctype html><meta charset="utf-8">
+<title>Giveawayapp – Privacy Policy</title>
+<h1>Privacy Policy</h1>
+<p>Contact: <a href="mailto:artfbmanager1@gmail.com">artfbmanager1@gmail.com</a></p>
+<p>Data deletion: <a href="/data-deletion">/data-deletion</a></p>
+"""
+
+INLINE_DELETION = """<!doctype html><meta charset="utf-8">
+<title>Giveawayapp – Data Deletion</title>
+<h1>Data Deletion Instructions</h1>
+<ol>
+  <li>Email from the account’s address to
+    <a href="mailto:artfbmanager1@gmail.com">artfbmanager1@gmail.com</a></li>
+  <li>Or revoke the app in Facebook/Instagram settings – we remove tokens and cached data within 30 days.</li>
+</ol>
+"""
+
+def _serve_or_inline(filename: str, inline_html: str):
+    fp = os.path.join(STATIC_DIR, filename)
+    if os.path.exists(fp):
+        return send_from_directory(STATIC_DIR, filename)
+    # Fallback: віддай вбудовану сторінку замість 404
+    return (inline_html, 200, {"Content-Type": "text/html; charset=utf-8"})
+
 @app.get("/privacy")
 def privacy_page():
-    return send_from_directory(STATIC_DIR, "privacy.html")
+    return _serve_or_inline("privacy.html", INLINE_PRIVACY)
 
 @app.get("/data-deletion")
 def data_deletion_page():
-    return send_from_directory(STATIC_DIR, "data-deletion.html")
-
+    return _serve_or_inline("data-deletion.html", INLINE_DELETION)
 @app.get("/__static_diag")
 def static_diag():
     try:
