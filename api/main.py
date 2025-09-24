@@ -23,14 +23,10 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 fb_import_error = None
 try:
     from fb_graph import (
-        login_url as fb_login_url,
-        exchange_code_for_token,
-        exchange_long_lived,
-        me,
-        list_pages,
-        ig_media,
-        ig_comments,
-    )
+    ig_login_url, ig_exchange_code_for_token, ig_exchange_long_lived,
+    me, list_pages, ig_media, ig_comments,
+    # опціонально: fb_login_url, fb_exchange_code_for_token
+)
 except Exception as e:
     fb_import_error = e
     fb_login_url = exchange_code_for_token = exchange_long_lived = me = list_pages = ig_media = ig_comments = None
@@ -556,32 +552,26 @@ def _ensure_fb_ready():
         return {"error":"fb_env_missing","detail":f"Missing env: {', '.join(missing)}"}, 503
     return None
 
-@app.get("/api/fb/login_url")
+@app.get("/api/fb/login_url")   # можеш перейменувати на /api/ig/login_url
 def fb_login_url_endpoint():
-    err = _ensure_fb_ready()
-    if err:
-        return jsonify(err[0]), err[1]
     state = secrets.token_urlsafe(16)
     session["fb_oauth_state"] = state
     scopes = [
-        "public_profile","email",
-        "pages_show_list","pages_read_engagement",
-        "instagram_basic","instagram_manage_comments",
+        "instagram_business_basic",
+        "instagram_business_manage_comments",
+        # додай інші за потреби: manage_messages, content_publish, manage_insights
     ]
-    return jsonify({"url": fb_login_url(state, scopes)})
+    return jsonify({"url": ig_login_url(state, scopes)})
 
 @app.get("/api/fb/callback")
 def fb_callback():
-    err = _ensure_fb_ready()
-    if err:
-        return jsonify(err[0]), err[1]
     code  = request.args.get("code")
     state = request.args.get("state")
     if not code or state != session.get("fb_oauth_state"):
         return jsonify({"error":"oauth_failed","detail":"state mismatch or no code"}), 400
     try:
-        short = exchange_code_for_token(code)           # ~1h
-        longl = exchange_long_lived(short["access_token"])  # ~60 days
+        short = ig_exchange_code_for_token(code)             # ~1h
+        longl = ig_exchange_long_lived(short["access_token"])  # ~60 days
         _save_fb_tokens(longl["access_token"], longl.get("expires_in", 60*24*3600))
         who = me(longl["access_token"])
         return jsonify({"ok": True, "me": who}), 200
