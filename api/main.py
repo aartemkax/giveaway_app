@@ -23,13 +23,13 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 fb_import_error = None
 try:
     from fb_graph import (
-    ig_login_url, ig_exchange_code_for_token, ig_exchange_long_lived,
-    me, list_pages, ig_media, ig_comments, _ensure_ig_ready,
-    # опціонально: fb_login_url, fb_exchange_code_for_token
-)
+        ig_login_url, ig_exchange_code_for_token, ig_exchange_long_lived,
+        me, list_pages, ig_media, ig_comments, _ensure_ig_ready,
+        fb_login_url, fb_exchange_code_for_token
+    )
 except Exception as e:
     fb_import_error = e
-    fb_login_url = exchange_code_for_token = exchange_long_lived = me = list_pages = ig_media = ig_comments = _ensure_ig_ready = None
+    fb_login_url = fb_exchange_code_for_token = ig_login_url = ig_exchange_code_for_token = ig_exchange_long_lived = me = list_pages = ig_media = ig_comments = _ensure_ig_ready = None
 
 from instagrapi import Client
 from instagrapi.exceptions import (
@@ -56,10 +56,9 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
 
 logger.info(
-    "IG env present: ID=%s SECRET=%s REDIRECT=%s",
-    bool(os.getenv("IG_APP_ID")),
-    bool(os.getenv("IG_APP_SECRET")),
-    bool(os.getenv("IG_REDIRECT_URI")),
+    "FB env present: ID=%s SECRET=%s REDIRECT=%s | IG env: ID=%s SECRET=%s REDIRECT=%s",
+    bool(os.getenv("FB_APP_ID")), bool(os.getenv("FB_APP_SECRET")), bool(os.getenv("FB_REDIRECT_URI")),
+    bool(os.getenv("IG_APP_ID")), bool(os.getenv("IG_APP_SECRET")), bool(os.getenv("IG_REDIRECT_URI")),
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -559,26 +558,23 @@ def _ensure_fb_ready():
         return {"error":"fb_env_missing","detail":f"Missing env: {', '.join(missing)}"}, 503
     return None
 
-@app.get("/api/fb/login_url")  # або /api/ig/login_url
+@app.get("/api/fb/login_url")
 def fb_login_url_endpoint():
-    err = _ensure_ig_ready()
-    if err:
-        return jsonify(err[0]), err[1]
-
+    err = _ensure_fb_ready()
+    if err: return jsonify(err[0]), err[1]
     state = secrets.token_urlsafe(16)
     session["fb_oauth_state"] = state
     scopes = [
-        "instagram_business_basic",
-        "instagram_business_manage_comments",
-        # за потреби: "instagram_business_manage_messages", "instagram_business_content_publish", "instagram_business_manage_insights",
+        "public_profile","email",
+        "pages_show_list","pages_read_engagement",
+        "instagram_basic","instagram_manage_comments",
     ]
     try:
-        url = ig_login_url(state, scopes)
-        return jsonify({"url": url})
+        return jsonify({"url": fb_login_url(state, scopes)})
     except Exception as e:
-        logger.exception("ig_login_url failed")
-        return jsonify({"error": "config_error", "detail": str(e)}), 503
-    
+        logger.exception("fb_login_url failed")
+        return jsonify({"error":"config_error","detail":str(e)}), 503
+
 @app.get("/api/fb/callback")
 def fb_callback():
     code  = request.args.get("code")
@@ -586,10 +582,17 @@ def fb_callback():
     if not code or state != session.get("fb_oauth_state"):
         return jsonify({"error":"oauth_failed","detail":"state mismatch or no code"}), 400
     try:
-        short = ig_exchange_code_for_token(code)             # ~1h
-        longl = ig_exchange_long_lived(short["access_token"])  # ~60 days
-        _save_fb_tokens(longl["access_token"], longl.get("expires_in", 60*24*3600))
-        who = me(longl["access_token"])
+        short = fb_exchange_code_for_token(code)  # <-- FB, не IG
+        # (опц.) long-lived
+        try:
+            longl = ig_exchange_long_lived(short["access_token"])
+            token = longl["access_token"]
+            expires_in = longl.get("expires_in", 60*24*3600)
+        except Exception:
+            token = short["access_token"]
+            expires_in = short.get("expires_in", 3600)
+        _save_fb_tokens(token, expires_in)
+        who = me(token)
         return jsonify({"ok": True, "me": who}), 200
     except Exception as e:
         logger.exception("fb callback failed")
