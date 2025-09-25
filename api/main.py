@@ -24,12 +24,12 @@ fb_import_error = None
 try:
     from fb_graph import (
     ig_login_url, ig_exchange_code_for_token, ig_exchange_long_lived,
-    me, list_pages, ig_media, ig_comments,
+    me, list_pages, ig_media, ig_comments, _ensure_ig_ready,
     # опціонально: fb_login_url, fb_exchange_code_for_token
 )
 except Exception as e:
     fb_import_error = e
-    fb_login_url = exchange_code_for_token = exchange_long_lived = me = list_pages = ig_media = ig_comments = None
+    fb_login_url = exchange_code_for_token = exchange_long_lived = me = list_pages = ig_media = ig_comments = _ensure_ig_ready = None
 
 from instagrapi import Client
 from instagrapi.exceptions import (
@@ -554,6 +554,8 @@ def _ensure_fb_ready():
 
 @app.get("/api/fb/login_url")   # можеш перейменувати на /api/ig/login_url
 def fb_login_url_endpoint():
+    err = _ensure_ig_ready()
+    if err: return jsonify(err[0]), err[1]
     state = secrets.token_urlsafe(16)
     session["fb_oauth_state"] = state
     scopes = [
@@ -714,6 +716,12 @@ def static_diag():
         "exists": os.path.isdir(STATIC_DIR),
         "files": files,
     }), 200
+
+def _ensure_ig_ready():
+    missing = [k for k in ("IG_APP_ID","IG_APP_SECRET","IG_REDIRECT_URI") if not os.getenv(k)]
+    if missing:
+        return {"error":"ig_env_missing","detail":f"Missing env: {', '.join(missing)}"}, 503
+    return None
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)
