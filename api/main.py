@@ -711,9 +711,13 @@ INLINE_DELETION = """<!doctype html><meta charset="utf-8">
 def _serve_or_inline(filename: str, inline_html: str):
     fp = os.path.join(STATIC_DIR, filename)
     if os.path.exists(fp):
-        return send_from_directory(STATIC_DIR, filename)
-    # Fallback: віддай вбудовану сторінку замість 404
-    return (inline_html, 200, {"Content-Type": "text/html; charset=utf-8"})
+        resp = send_from_directory(STATIC_DIR, filename, conditional=False)
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
+        return resp
+    return Response(inline_html, 200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store, max-age=0"
+    })
 
 @app.get("/privacy")
 def privacy_page():
