@@ -55,6 +55,13 @@ LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
 
+logger.info(
+    "IG env present: ID=%s SECRET=%s REDIRECT=%s",
+    bool(os.getenv("IG_APP_ID")),
+    bool(os.getenv("IG_APP_SECRET")),
+    bool(os.getenv("IG_REDIRECT_URI")),
+)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # знайдемо де насправді лежить 'static' у контейнері
@@ -552,19 +559,26 @@ def _ensure_fb_ready():
         return {"error":"fb_env_missing","detail":f"Missing env: {', '.join(missing)}"}, 503
     return None
 
-@app.get("/api/fb/login_url")   # можеш перейменувати на /api/ig/login_url
+@app.get("/api/fb/login_url")  # або /api/ig/login_url
 def fb_login_url_endpoint():
     err = _ensure_ig_ready()
-    if err: return jsonify(err[0]), err[1]
+    if err:
+        return jsonify(err[0]), err[1]
+
     state = secrets.token_urlsafe(16)
     session["fb_oauth_state"] = state
     scopes = [
         "instagram_business_basic",
         "instagram_business_manage_comments",
-        # додай інші за потреби: manage_messages, content_publish, manage_insights
+        # за потреби: "instagram_business_manage_messages", "instagram_business_content_publish", "instagram_business_manage_insights",
     ]
-    return jsonify({"url": ig_login_url(state, scopes)})
-
+    try:
+        url = ig_login_url(state, scopes)
+        return jsonify({"url": url})
+    except Exception as e:
+        logger.exception("ig_login_url failed")
+        return jsonify({"error": "config_error", "detail": str(e)}), 503
+    
 @app.get("/api/fb/callback")
 def fb_callback():
     code  = request.args.get("code")
@@ -718,9 +732,9 @@ def static_diag():
     }), 200
 
 def _ensure_ig_ready():
-    missing = [k for k in ("IG_APP_ID","IG_APP_SECRET","IG_REDIRECT_URI") if not os.getenv(k)]
+    missing = [k for k in ("IG_APP_ID", "IG_APP_SECRET", "IG_REDIRECT_URI") if not os.getenv(k)]
     if missing:
-        return {"error":"ig_env_missing","detail":f"Missing env: {', '.join(missing)}"}, 503
+        return ({"error": "ig_env_missing", "detail": f"Missing env: {', '.join(missing)}"}, 503)
     return None
 
 if __name__ == '__main__':
