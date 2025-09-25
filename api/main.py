@@ -23,13 +23,14 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 fb_import_error = None
 try:
     from fb_graph import (
-        ig_login_url, ig_exchange_code_for_token, ig_exchange_long_lived,
-        me, list_pages, ig_media, ig_comments, _ensure_ig_ready,
-        fb_login_url, fb_exchange_code_for_token
+        fb_login_url, fb_exchange_code_for_token,   # FB Login
+        ig_exchange_long_lived,                     # optional long-lived
+        me, list_pages, ig_media, ig_comments       # Graph helpers
     )
 except Exception as e:
     fb_import_error = e
-    fb_login_url = fb_exchange_code_for_token = ig_login_url = ig_exchange_code_for_token = ig_exchange_long_lived = me = list_pages = ig_media = ig_comments = _ensure_ig_ready = None
+    fb_login_url = fb_exchange_code_for_token = ig_exchange_long_lived = None
+    me = list_pages = ig_media = ig_comments = None
 
 from instagrapi import Client
 from instagrapi.exceptions import (
