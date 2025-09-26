@@ -12,7 +12,7 @@ import concurrent.futures as futures
 import secrets
 from datetime import timedelta
 
-from flask import Flask, send_from_directory, jsonify, request, session, current_app
+from flask import Flask, send_from_directory, jsonify, request, session, current_app, Response
 from flask_cors import CORS
 from flask_session import Session
 from dotenv import load_dotenv
@@ -730,6 +730,18 @@ def privacy_page():
 @app.get("/data-deletion")
 def data_deletion_page():
     return _serve_or_inline("data-deletion.html", INLINE_DELETION)
+
+@app.get("/api/fb/debug_pages")
+def fb_debug_pages():
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error":"login_required"}), 401
+    try:
+        raw = list_pages(tok)
+        return jsonify(raw), 200
+    except Exception as e:
+        return jsonify({"error":"graph_error","detail":str(e)}), 500
+
 @app.get("/__static_diag")
 def static_diag():
     try:
