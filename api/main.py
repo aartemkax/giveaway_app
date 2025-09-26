@@ -22,14 +22,13 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 fb_import_error = None
 try:
-    from fb_graph import (
-        fb_login_url, fb_exchange_code_for_token,   # FB Login
-        ig_exchange_long_lived,                     # optional long-lived
-        me, list_pages, ig_media, ig_comments       # Graph helpers
-    )
+   from fb_graph import (
+    fb_login_url, fb_exchange_code_for_token, fb_exchange_long_lived,
+    me, list_pages, ig_media, ig_comments
+)
 except Exception as e:
     fb_import_error = e
-    fb_login_url = fb_exchange_code_for_token = ig_exchange_long_lived = None
+    fb_login_url = fb_exchange_code_for_token = fb_exchange_long_lived = None
     me = list_pages = ig_media = ig_comments = None
 
 from instagrapi import Client
@@ -583,18 +582,23 @@ def fb_callback():
     if not code or state != session.get("fb_oauth_state"):
         return jsonify({"error":"oauth_failed","detail":"state mismatch or no code"}), 400
     try:
-        short = fb_exchange_code_for_token(code)  # <-- FB, не IG
-        # (опц.) long-lived
+        # 1) обміняли code -> короткий FB user token (~1h)
+        short = fb_exchange_code_for_token(code)
+
+        # 2) спробували зробити LONG-LIVED саме ДЛЯ FB (не IG)
         try:
-            longl = ig_exchange_long_lived(short["access_token"])
+            longl = fb_exchange_long_lived(short["access_token"])
             token = longl["access_token"]
             expires_in = longl.get("expires_in", 60*24*3600)
         except Exception:
             token = short["access_token"]
             expires_in = short.get("expires_in", 3600)
+
+        # 3) зберегли в сесію і перевірили /me
         _save_fb_tokens(token, expires_in)
         who = me(token)
         return jsonify({"ok": True, "me": who}), 200
+
     except Exception as e:
         logger.exception("fb callback failed")
         return jsonify({"error":"oauth_failed","detail":str(e)}), 400

@@ -43,11 +43,11 @@ def ig_exchange_code_for_token(code: str) -> dict:
         raise FBAuthError(j)
     return j  # {access_token, token_type, expires_in}
 
-def ig_exchange_long_lived(user_token: str) -> dict:
+def fb_exchange_long_lived(user_token: str) -> dict:
     q = {
         "grant_type": "fb_exchange_token",
-        "client_id": IG_APP_ID,
-        "client_secret": IG_APP_SECRET,
+        "client_id": FB_APP_ID,
+        "client_secret": FB_APP_SECRET,
         "fb_exchange_token": user_token,
     }
     r = requests.get(f"{GRAPH}/oauth/access_token", params=q, timeout=10)
