@@ -560,48 +560,75 @@ def _ensure_fb_ready():
 
 @app.get("/api/fb/login_url")
 def fb_login_url_endpoint():
+    # Ігноруємо префетч/пререндер — не мутуємо сесію
+    sp = (request.headers.get("Sec-Purpose") or "").lower()
+    p  = (request.headers.get("Purpose") or "").lower()
+    if "prefetch" in sp or "prefetch" in p:
+        return "", 204
+
     err = _ensure_fb_ready()
-    if err: return jsonify(err[0]), err[1]
+    if err:
+        return jsonify(err[0]), err[1]
+
     state = secrets.token_urlsafe(16)
-    session["fb_oauth_state"] = state
+
+    # Тримаємо КОРОТКИЙ список валідних state в сесії (5 хв)
+    states: list[tuple[str, float]] = session.get("fb_oauth_states", [])
+    now = time.time()
+    states = [(s, t) for (s, t) in states if now - t < 300]  # чистимо старі
+    states.append((state, now))
+    session["fb_oauth_states"] = states
+
     scopes = [
-        "public_profile","email",
-        "pages_show_list","pages_read_engagement",
-        "instagram_basic","instagram_manage_comments",
+        "public_profile", "email",
+        "pages_show_list", "pages_read_engagement",
+        "instagram_basic", "instagram_manage_comments",
     ]
     try:
-        return jsonify({"url": fb_login_url(state, scopes)})
+        url = fb_login_url(state, scopes)
+        # не даємо браузеру кешувати відповідь з URL (зменшує «хитрощі» Chrome)
+        resp = jsonify({"url": url})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
     except Exception as e:
         logger.exception("fb_login_url failed")
-        return jsonify({"error":"config_error","detail":str(e)}), 503
+        return jsonify({"error": "config_error", "detail": str(e)}), 503
+
 
 @app.get("/api/fb/callback")
 def fb_callback():
     code  = request.args.get("code")
     state = request.args.get("state")
-    if not code or state != session.get("fb_oauth_state"):
-        return jsonify({"error":"oauth_failed","detail":"state mismatch or no code"}), 400
+
+    # Дістаємо дозволені state зі сесії
+    allowed = {s for s, _ in (session.get("fb_oauth_states") or [])}
+    if not code or state not in allowed:
+        return jsonify({"error": "oauth_failed", "detail": "state mismatch or no code"}), 400
+
+    # Видаляємо використаний state (одноразовий)
+    session["fb_oauth_states"] = [(s, t) for (s, t) in (session.get("fb_oauth_states") or []) if s != state]
+
     try:
-        # 1) обміняли code -> короткий FB user token (~1h)
+        # 1) code -> короткоживучий FB user token (~1h)
         short = fb_exchange_code_for_token(code)
 
-        # 2) спробували зробити LONG-LIVED саме ДЛЯ FB (не IG)
+        # 2) Пробуємо обміняти на LONG-LIVED FB token (~60 днів)
         try:
             longl = fb_exchange_long_lived(short["access_token"])
             token = longl["access_token"]
-            expires_in = longl.get("expires_in", 60*24*3600)
+            expires_in = int(longl.get("expires_in", 60*24*3600))
         except Exception:
             token = short["access_token"]
-            expires_in = short.get("expires_in", 3600)
+            expires_in = int(short.get("expires_in", 3600))
 
-        # 3) зберегли в сесію і перевірили /me
+        # 3) Зберігаємо та валідуємо /me
         _save_fb_tokens(token, expires_in)
         who = me(token)
         return jsonify({"ok": True, "me": who}), 200
 
     except Exception as e:
         logger.exception("fb callback failed")
-        return jsonify({"error":"oauth_failed","detail":str(e)}), 400
+        return jsonify({"error": "oauth_failed", "detail": str(e)}), 400
     
 @app.get("/api/ig/accounts")
 def ig_accounts():
