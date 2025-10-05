@@ -95,7 +95,7 @@ def me(user_token: str) -> dict:
     return r.json()
 
 def list_pages(user_token: str) -> dict:
-    fields = "id,name,instagram_business_account{id,username}"
+    fields = "id,name,connected_instagram_account{id,username},instagram_business_account{id,username}"
     r = requests.get(f"{GRAPH}/me/accounts",
                      params={"fields": fields, "access_token": user_token},
                      timeout=15)

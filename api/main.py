@@ -643,15 +643,18 @@ def ig_accounts():
         # Витягнемо IG business акаунти (тільки де є instagram_business_account)
         rows = []
         for p in (pages.get("data") or []):
-            ig = (p.get("instagram_business_account") or {})
+            ig = (p.get("instagram_business_account")
+                  or p.get("connected_instagram_account")
+                  or {})
             if ig.get("id"):
                 rows.append({
-                    "page_id": p.get("id"),
-                    "page_name": p.get("name"),
-                    "ig_user_id": ig.get("id"),
-                    "ig_username": ig.get("username"),
-                })
-        return jsonify({"accounts": rows}), 200
+            "page_id": p.get("id"),
+            "page_name": p.get("name"),
+            "ig_user_id": ig.get("id"),
+            "ig_username": ig.get("username"),
+        })
+            return jsonify({"accounts": rows}), 200
+
     except Exception as e:
         logger.exception("ig_accounts failed")
         return jsonify({"error":"internal_error","detail":str(e)}), 500
