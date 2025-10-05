@@ -634,30 +634,38 @@ def fb_callback():
 def ig_accounts():
     err = _ensure_fb_ready()
     if err:
+        # _ensure_fb_ready() повертає (dict, status); це гарантує return
         return jsonify(err[0]), err[1]
+
     tok = _require_fb()
     if not tok:
-        return jsonify({"error":"login_required","detail":"fb"}), 401
+        # тут обов’язково return!
+        return jsonify({"error": "login_required", "detail": "fb"}), 401
+
     try:
         pages = list_pages(tok)
-        # Витягнемо IG business акаунти (тільки де є instagram_business_account)
+
         rows = []
         for p in (pages.get("data") or []):
-            ig = (p.get("instagram_business_account")
-                  or p.get("connected_instagram_account")
-                  or {})
+            ig = (
+                p.get("instagram_business_account")
+                or p.get("connected_instagram_account")
+                or {}
+            )
             if ig.get("id"):
                 rows.append({
-            "page_id": p.get("id"),
-            "page_name": p.get("name"),
-            "ig_user_id": ig.get("id"),
-            "ig_username": ig.get("username"),
-        })
-            return jsonify({"accounts": rows}), 200
+                    "page_id": p.get("id"),
+                    "page_name": p.get("name"),
+                    "ig_user_id": ig.get("id"),
+                    "ig_username": ig.get("username"),
+                })
+
+        return jsonify({"accounts": rows}), 200
 
     except Exception as e:
         logger.exception("ig_accounts failed")
-        return jsonify({"error":"internal_error","detail":str(e)}), 500
+        return jsonify({"error": "internal_error", "detail": str(e)}), 500
+
 
 @app.get("/api/ig/media")
 def ig_media_list():
