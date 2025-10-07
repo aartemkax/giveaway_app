@@ -594,6 +594,15 @@ def fb_login_url_endpoint():
         logger.exception("fb_login_url failed")
         return jsonify({"error": "config_error", "detail": str(e)}), 503
 
+@app.get("/api/fb/env_debug")
+def fb_env_debug():
+    return jsonify({
+        "FB_APP_ID_set": bool(os.getenv("FB_APP_ID")),
+        "FB_APP_SECRET_set": bool(os.getenv("FB_APP_SECRET")),
+        "FB_REDIRECT_URI": os.getenv("FB_REDIRECT_URI"),
+        "fb_import_error": str(fb_import_error) if fb_import_error else None,
+    }), 200
+
 
 @app.get("/api/fb/callback")
 def fb_callback():

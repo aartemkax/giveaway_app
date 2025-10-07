@@ -30,11 +30,10 @@ def login_url(state: str, scopes: list[str]) -> str:
         "redirect_uri": REDIRECT_URI,
         "response_type": "code",
         "scope": " ".join(scopes),
-        # щоб FB знову показав діалог і попросив відсутні дозволи
         "auth_type": "rerequest",
         "state": state,
     }
-    return f"{FB_DIALOG}/oauth?{urlencode(q)}"
+    return f"{FB_DIALOG}?{urlencode(q)}"
 
 # ---- OAuth: обмін коду на короткоживучий токен (~1h) ----
 def exchange_code_for_token(code: str) -> dict:
