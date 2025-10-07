@@ -22,15 +22,16 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 fb_import_error = None
 try:
-   from fb_graph import (
-    fb_login_url, fb_exchange_code_for_token, fb_exchange_long_lived,
-    me, list_pages, ig_media, ig_comments
-)
+    from fb_graph import (
+        login_url as fb_login_url,
+        exchange_code_for_token as fb_exchange_code_for_token,
+        exchange_long_lived as fb_exchange_long_lived,
+        me, list_pages, ig_media, ig_comments,
+    )
 except Exception as e:
     fb_import_error = e
     fb_login_url = fb_exchange_code_for_token = fb_exchange_long_lived = None
     me = list_pages = ig_media = ig_comments = None
-
 from instagrapi import Client
 from instagrapi.exceptions import (
     BadPassword, ChallengeRequired, TwoFactorRequired,
