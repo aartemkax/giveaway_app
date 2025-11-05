@@ -8,6 +8,19 @@ import re
 import time
 import concurrent.futures as futures
 
+fb_import_error = None
+try:
+    from fb_graph import (
+        login_url as fb_login_url,
+        exchange_code_for_token as fb_exchange_code_for_token,
+        exchange_long_lived as fb_exchange_long_lived,
+        me, list_pages, ig_media, ig_comments,
+    )
+except Exception as e:
+    fb_import_error = e
+    fb_login_url = fb_exchange_code_for_token = fb_exchange_long_lived = None
+    me = list_pages = ig_media = ig_comments = None
+
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_session import Session
@@ -329,6 +342,176 @@ def debug_session():
 @app.route('/healthz', methods=['GET'])
 def healthz():
     return jsonify({"ok": True}), 200
+
+# ── Facebook ─────────────────────────────────────────────────────────────────
+
+import secrets
+
+def _save_fb_tokens(user_token: str, expires_in: int):
+    session["fb_user_token"] = user_token
+    session["fb_token_expires_at"] = int(time.time()) + int(expires_in)
+
+def _require_fb():
+    tok = session.get("fb_user_token")
+    if not tok:
+        return None
+    if int(session.get("fb_token_expires_at", 0)) <= int(time.time()) + 60:
+        pass  # тут можна буде авто-продовжувати long-lived токен
+    return tok
+
+def _ensure_fb_ready():
+    if fb_import_error:
+        return {"error":"fb_module_error","detail":str(fb_import_error)}, 503
+    missing = [k for k in ("FB_APP_ID","FB_APP_SECRET","FB_REDIRECT_URI") if not os.getenv(k)]
+    if missing:
+        return {"error":"fb_env_missing","detail":f"Missing env: {', '.join(missing)}"}, 503
+    return None
+
+@app.get("/api/fb/login_url")
+def fb_login_url_endpoint():
+    sp = (request.headers.get("Sec-Purpose") or "").lower()
+    p  = (request.headers.get("Purpose") or "").lower()
+    if "prefetch" in sp or "prefetch" in p:
+        return "", 204
+
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
+
+    state = secrets.token_urlsafe(16)
+    states = session.get("fb_oauth_states", [])
+    now = time.time()
+    states = [(s, t) for (s, t) in states if now - t < 300]
+    states.append((state, now))
+    session["fb_oauth_states"] = states
+
+    scopes = [
+        "public_profile", "email",
+        "pages_show_list", "pages_read_engagement",
+        "instagram_basic", "instagram_manage_comments",
+    ]
+    try:
+        url = fb_login_url(state, scopes)
+        resp = jsonify({"url": url})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception as e:
+        logger.exception("fb_login_url failed")
+        return jsonify({"error": "config_error", "detail": str(e)}), 503
+
+@app.get("/api/fb/callback")
+def fb_callback():
+    code  = request.args.get("code")
+    state = request.args.get("state")
+    allowed = {s for s, _ in (session.get("fb_oauth_states") or [])}
+    if not code or state not in allowed:
+        return jsonify({"error": "oauth_failed", "detail": "state mismatch or no code"}), 400
+    session["fb_oauth_states"] = [(s, t) for (s, t) in (session.get("fb_oauth_states") or []) if s != state]
+    try:
+        short = fb_exchange_code_for_token(code)
+        try:
+            longl = fb_exchange_long_lived(short["access_token"])
+            token = longl["access_token"]
+            expires_in = int(longl.get("expires_in", 60*24*3600))
+        except Exception:
+            token = short["access_token"]
+            expires_in = int(short.get("expires_in", 3600))
+        _save_fb_tokens(token, expires_in)
+        who = me(token)
+        return jsonify({"ok": True, "me": who}), 200
+    except Exception as e:
+        logger.exception("fb callback failed")
+        return jsonify({"error": "oauth_failed", "detail": str(e)}), 400
+
+@app.get("/api/fb/env_debug")
+def fb_env_debug():
+    return jsonify({
+        "FB_APP_ID_set": bool(os.getenv("FB_APP_ID")),
+        "FB_APP_SECRET_set": bool(os.getenv("FB_APP_SECRET")),
+        "FB_REDIRECT_URI": os.getenv("FB_REDIRECT_URI"),
+        "fb_import_error": str(fb_import_error) if fb_import_error else None,
+    }), 200
+
+@app.get("/api/fb/debug_pages")
+def fb_debug_pages():
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error":"login_required"}), 401
+    try:
+        raw = list_pages(tok)
+        return jsonify(raw), 200
+    except Exception as e:
+        return jsonify({"error":"graph_error","detail":str(e)}), 500
+
+@app.get("/api/ig/accounts")
+def ig_accounts():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error": "login_required", "detail": "fb"}), 401
+    try:
+        pages = list_pages(tok)
+        rows = []
+        for p in (pages.get("data") or []):
+            ig = (p.get("instagram_business_account") or
+                  p.get("connected_instagram_account") or {})
+            if ig.get("id"):
+                rows.append({
+                    "page_id": p.get("id"),
+                    "page_name": p.get("name"),
+                    "ig_user_id": ig.get("id"),
+                    "ig_username": ig.get("username"),
+                })
+        return jsonify({"accounts": rows}), 200
+    except Exception as e:
+        logger.exception("ig_accounts failed")
+        return jsonify({"error": "internal_error", "detail": str(e)}), 500
+
+@app.get("/api/ig/media")
+def ig_media_list():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error":"login_required","detail":"fb"}), 401
+    ig_user_id = request.args.get("ig_user_id","").strip()
+    after = request.args.get("after")
+    if not ig_user_id:
+        return jsonify({"error":"validation_error","detail":"ig_user_id required"}), 400
+    try:
+        m = ig_media(ig_user_id, tok, limit=50, after=after)
+        return jsonify(m), 200
+    except Exception as e:
+        logger.exception("ig_media_list failed")
+        return jsonify({"error":"internal_error","detail":str(e)}), 500
+
+@app.get("/api/ig/comments")
+def ig_comments_list():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error":"login_required","detail":"fb"}), 401
+    media_id = request.args.get("media_id","").strip()
+    after = request.args.get("after")
+    if not media_id:
+        return jsonify({"error":"validation_error","detail":"media_id required"}), 400
+    try:
+        c = ig_comments(media_id, tok, limit=100, after=after)
+        items = [{
+            "id": row.get("id"),
+            "username": row.get("username") or "",
+            "text": row.get("text") or "",
+            "timestamp": row.get("timestamp"),
+        } for row in (c.get("data") or [])]
+        return jsonify({"participants": items, "paging": c.get("paging")}), 200
+    except Exception as e:
+        logger.exception("ig_comments failed")
+        return jsonify({"error":"internal_error","detail":str(e)}), 500
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
