@@ -71,7 +71,7 @@ redis_conn = Redis.from_url(redis_url)
 queue = Queue(connection=redis_conn)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/p/[^/]+/?$")
+URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|tv)/[^/]+/?$")
 LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
 
 @app.before_request
@@ -356,6 +356,28 @@ def login_by_sessionid():
     if not sid:
         return jsonify({'error': 'validation_error', 'detail': 'sessionid required'}), 400
     
+    # беремо стабільний «девайс» з кешу, або створюємо
+    emu = session.get('emu_cache') or emulate_device({}, use_phone_code=True)
+    cl = Client()
+    cl.set_settings(emu['settings'])
+
+    proxy_url = os.getenv("PROXY_URL")
+    if proxy_url:
+        cl.set_proxy(proxy_url)
+    cl.delay_range = [2, 5]
+
+    try:
+        ok = cl.login_by_sessionid(sid)
+        if not ok:
+            return jsonify({'error': 'invalid_sessionid'}), 401
+    except Exception as e:
+        logger.exception("login_by_sessionid failed")
+        return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
+
+    session['ig_settings'] = cl.get_settings()
+    session['emu_cache'] = {'settings': session['ig_settings'], 'device_agent': cl.user_agent}
+    return jsonify({'ok': True}), 200
+
 @app.get("/api/fb/_whoami")
 def fb_whoami():
     tok = session.get("fb_user_token")
@@ -382,33 +404,16 @@ def fb_whoami():
 
     return jsonify({
         "me": q("me", fields="id,name"),
-        "scopes": q("me/permissions"),                                   # видані пермішени user-токена
-        "accounts": q("me/accounts", fields="id,name,tasks"),            # що реально повертає /me/accounts
-        "debug": debug                                                   # що FB думає про цей токен
+        "scopes": q("me/permissions"),                                   
+        "accounts": q("me/accounts", fields="id,name,tasks"),
+        "debug": debug
     }), 200
 
-
-    # беремо стабільний «девайс» з кешу, або створюємо
-    emu = session.get('emu_cache') or emulate_device({}, use_phone_code=True)
-    cl = Client()
-    cl.set_settings(emu['settings'])
-
-    proxy_url = os.getenv("PROXY_URL")
-    if proxy_url:
-        cl.set_proxy(proxy_url)
-    cl.delay_range = [2, 5]
-
-    try:
-        ok = cl.login_by_sessionid(sid)
-        if not ok:
-            return jsonify({'error': 'invalid_sessionid'}), 401
-    except Exception as e:
-        logger.exception("login_by_sessionid failed")
-        return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
-
-    session['ig_settings'] = cl.get_settings()
-    session['emu_cache'] = {'settings': session['ig_settings'], 'device_agent': cl.user_agent}
-    return jsonify({'ok': True}), 200
+@app.get("/__routes")
+def __routes():
+    from flask import jsonify
+    rules = sorted(str(r) for r in app.url_map.iter_rules())
+    return jsonify({"rules": rules}), 200
 
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
 def logout():
