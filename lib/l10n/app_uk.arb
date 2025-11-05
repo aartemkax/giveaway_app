@@ -116,18 +116,7 @@
 
   "error_rate_limited": "Забагато запитів. Зачекайте кілька хвилин.",
   "@error_rate_limited": {
-    "description": "Показувати, коли спрацював ліміт запитів Instagram (HTTP 429)"
-  },
-
-  "error_too_many_jobs": "Черга перевантажена. У вас уже {active} із {limit} активних завдань. Спробуйте знову через {mm}:{ss}.",
-  "@error_too_many_jobs": {
-    "description": "Показувати, коли досягнуто ліміт черги застосунку (HTTP 429)",
-    "placeholders": {
-      "active": { "type": "int", "example": "3" },
-      "limit":  { "type": "int", "example": "3" },
-      "mm":     { "type": "String", "example": "59" },
-      "ss":     { "type": "String", "example": "59" }
-    }
+    "description": "Показувати, коли Instagram rate-limit (429)"
   },
 
   "error_session_expired": "Сесія закінчилася. Увійдіть знову.",

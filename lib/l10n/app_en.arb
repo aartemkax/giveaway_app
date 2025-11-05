@@ -74,20 +74,7 @@
   "@error_proxy_blocked": { "description": "Backend returns proxy_blocked (HTTP 403)" },
 
   "error_rate_limited": "Too many requests. Please wait a few minutes.",
-  "@error_rate_limited": {
-  "description": "Instagram rate-limit hit (HTTP 429)"
-  },
-
-  "error_too_many_jobs": "Queue is busy. You already have {active} of {limit} active tasks. Try again in {mm}:{ss}.",
-  "@error_too_many_jobs": {
-  "description": "App queue limit hit (HTTP 429)",
-  "placeholders": {
-    "active": { "type": "int", "example": "3" },
-    "limit":  { "type": "int", "example": "3" },
-    "mm":     { "type": "String", "example": "59" },
-    "ss":     { "type": "String", "example": "59" }
-    }
-  },
+  "@error_rate_limited": { "description": "Instagram rate-limit hit (HTTP 429)" },
 
   "error_session_expired": "Session expired. Please log in again.",
   "@error_session_expired": { "description": "detail == \"session_expired\" (HTTP 401)" },

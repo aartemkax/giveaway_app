@@ -1,21 +1,22 @@
 // lib/screens/participants_screen.dart
+
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:lottie/lottie.dart';
 import '../utils/api_exception.dart';
+// Тепер цей імпорт справді потрібен
 import '../services/participants_service.dart';
 import '../models/participant.dart';
 import '../widgets/participant_card.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:giveaway_app/services/api_client.dart';
-import 'package:giveaway_app/utils/error_messages.dart';
 
 class ParticipantsScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
-  const ParticipantsScreen({required this.onLocaleChanged, super.key});
+  const ParticipantsScreen({
+    required this.onLocaleChanged,
+    super.key,
+  });
 
   @override
   State<ParticipantsScreen> createState() => _ParticipantsScreenState();
@@ -25,6 +26,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   final TextEditingController _urlCtrl = TextEditingController();
   final TextEditingController _countCtrl = TextEditingController(text: '1');
 
+  // Створюємо сервіс
   final _participantsService = ParticipantsService();
 
   bool _loading = false;
@@ -38,37 +40,19 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     super.dispose();
   }
 
-  Future<void> _logout() async {
-    try {
-      await ApiClient().dio.post('/api/logout'); // 1) сервер
-    } catch (_) {}
-    try {
-      await CookieManager.instance().deleteAllCookies(); // 2) WebView cookies
-    } catch (_) {}
-    try {
-      await ApiClient().clearCookies(); // 3) Dio cookies
-    } catch (_) {}
-    try {
-      final prefs = await SharedPreferences.getInstance(); // 4) локальний флаг
-      await prefs.remove('isLoggedIn');
-    } catch (_) {}
-    if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
-  }
-
   Future<void> _refreshAndChoose() async {
     final loc = AppLocalizations.of(context)!;
     final n = int.tryParse(_countCtrl.text.trim()) ?? 0;
     if (n < 1) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(loc.error_invalid_winner_count)),
-      );
+          SnackBar(content: Text(loc.error_invalid_winner_count)));
       return;
     }
 
     setState(() => _loading = true);
 
     try {
+      // Викликаємо метод із сервісу
       final unique = (await _participantsService
               .fetchParticipants(_urlCtrl.text.trim(), context: context))
           .toSet()
@@ -90,12 +74,51 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       final limit = n.clamp(1, unique.length);
       final winners = unique.take(limit).toList();
 
+      if (winners.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(loc.no_participants)));
+        setState(() {
+          _participants = [];
+          _showCelebration = false;
+        });
+        return;
+      }
+
       setState(() {
         _participants = winners;
         _showCelebration = true;
       });
     } on ApiException catch (e) {
-      final message = humanizeApiError(context, e);
+      String message;
+      switch (e.code) {
+        case 'invalid_post_url':
+          message = loc.error_invalid_post_url;
+          break;
+        case 'post_unavailable':
+          message = loc.error_post_unavailable;
+          break;
+        case 'rate_limited':
+          message = loc.error_rate_limited;
+          break;
+        case 'proxy_blocked':
+          message = loc.error_proxy_blocked;
+          break;
+        case 'login_required':
+          message = loc.error_login_required;
+          break;
+        case 'invalid_credentials':
+          message = loc.error_invalid_credentials;
+          break;
+        case 'internal_error':
+          message = loc.error_internal_error;
+          break;
+        case 'error_unknown':
+          message = loc.error_unknown;
+          break;
+        default:
+          message = loc.error_generic(e.code);
+      }
       if (!mounted) return;
       if (e.code == 'login_required' || e.code == 'invalid_credentials') {
         Navigator.of(context).pushReplacementNamed('/login');
@@ -105,10 +128,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(AppLocalizations.of(context)!.error_internal_error)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(loc.error_internal_error)));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -119,45 +140,9 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     final loc = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: Text(loc.participants_title),
-        centerTitle: true,
-        actions: [
-          PopupMenuButton<Locale>(
-            icon: const Icon(Icons.language),
-            onSelected: widget.onLocaleChanged,
-            itemBuilder: (_) {
-              return AppLocalizations.supportedLocales.map((locale) {
-                final code = locale.languageCode;
-                String label;
-                if (code == 'uk') {
-                  label = 'Українська';
-                } else if (code == 'fr') {
-                  label = 'Français';
-                } else {
-                  label = 'English';
-                }
-                return PopupMenuItem<Locale>(
-                  value: locale,
-                  child: Text(label),
-                );
-              }).toList();
-            },
-          ),
-          IconButton(
-            tooltip: 'Вийти',
-            icon: const Icon(Icons.logout),
-            onPressed: _logout,
-          ),
-        ],
-      ),
-
-      extendBodyBehindAppBar: true, // щоб фон заходив під прозорий AppBar
       body: Stack(
         children: [
-          // Фон
+          // Основний контент
           Container(
             decoration: BoxDecoration(
               image: DecorationImage(
@@ -165,83 +150,129 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                 fit: BoxFit.cover,
               ),
             ),
-          ),
-
-          SafeArea(
-            child: Column(
-              children: [
-                const SizedBox(height: 8),
-                // Поля та кнопка
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: _urlCtrl,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: const Color.fromRGBO(255, 255, 255, 0.8),
-                          labelText: loc.post_url_label,
-                          border: const OutlineInputBorder(),
+            child: SafeArea(
+              child: Column(
+                children: [
+                  // AppBar
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon:
+                              const Icon(Icons.arrow_back, color: Colors.white),
+                          onPressed: () => Navigator.of(context).pop(),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _countCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: const Color.fromRGBO(255, 255, 255, 0.8),
-                          labelText: loc.winners_count_label,
-                          border: const OutlineInputBorder(),
+                        Text(
+                          loc.participants_title,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      ElevatedButton.icon(
-                        onPressed: _loading ? null : _refreshAndChoose,
-                        icon: _loading
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.refresh),
-                        label: Text(loc.refresh_and_choose),
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(50),
+                        PopupMenuButton<Locale>(
+                          icon: const Icon(Icons.language, color: Colors.white),
+                          onSelected: widget.onLocaleChanged,
+                          itemBuilder: (_) =>
+                              AppLocalizations.supportedLocales.map((locale) {
+                            String label;
+                            if (locale.languageCode == 'uk') {
+                              label = 'Українська';
+                            } else if (locale.languageCode == 'fr') {
+                              label = 'Français';
+                            } else {
+                              label = 'English';
+                            }
+                            return PopupMenuItem(
+                              value: locale,
+                              child: Text(label),
+                            );
+                          }).toList(),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 20),
 
-                // Результати
-                Expanded(
-                  child: _participants.isEmpty
-                      ? Center(
-                          child: Text(
-                            loc.no_participants,
-                            style: const TextStyle(
-                                fontSize: 18, color: Colors.white),
+                  const SizedBox(height: 16),
+
+                  // Поля та кнопка
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: _urlCtrl,
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: const Color.fromRGBO(255, 255, 255, 0.8),
+                            labelText: loc.post_url_label,
+                            border: const OutlineInputBorder(),
                           ),
-                        )
-                      : GridView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            childAspectRatio: 0.8,
-                          ),
-                          itemCount: _participants.length,
-                          itemBuilder: (_, i) =>
-                              ParticipantCard(_participants[i]),
                         ),
-                ),
-              ],
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _countCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: const Color.fromRGBO(255, 255, 255, 0.8),
+                            labelText: loc.winners_count_label,
+                            border: const OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        ElevatedButton.icon(
+                          onPressed: _loading ? null : _refreshAndChoose,
+                          icon: _loading
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.refresh),
+                          label: Text(loc.refresh_and_choose),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(50),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Результати
+                  Expanded(
+                    child: _participants.isEmpty
+                        ? Center(
+                            child: Text(
+                              loc.no_participants,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                color: Colors.white,
+                              ),
+                            ),
+                          )
+                        : GridView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                              childAspectRatio: 0.8,
+                            ),
+                            itemCount: _participants.length,
+                            itemBuilder: (_, i) {
+                              return ParticipantCard(_participants[i]);
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
           ),
 
@@ -254,7 +285,10 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                   child: SizedBox(
                     width: 200,
                     height: 200,
-                    child: Lottie.asset(AssetPaths.loadingLottie, repeat: true),
+                    child: Lottie.asset(
+                      AssetPaths.loadingLottie,
+                      repeat: true,
+                    ),
                   ),
                 ),
               ),

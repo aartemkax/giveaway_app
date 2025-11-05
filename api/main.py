@@ -6,79 +6,33 @@ import base64
 import logging
 import re
 import time
-import hashlib
-import random
 import concurrent.futures as futures
-import secrets
-from datetime import timedelta
 
-from flask import Flask, send_from_directory, jsonify, request, session, current_app, Response
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_session import Session
 from dotenv import load_dotenv
 from redis import Redis
-from rq import Queue, Retry
+from rq import Queue
 from werkzeug.middleware.proxy_fix import ProxyFix
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-fb_import_error = None
-try:
-    from fb_graph import (
-        login_url as fb_login_url,
-        exchange_code_for_token as fb_exchange_code_for_token,
-        exchange_long_lived as fb_exchange_long_lived,
-        me, list_pages, ig_media, ig_comments,
-    )
-except Exception as e:
-    fb_import_error = e
-    fb_login_url = fb_exchange_code_for_token = fb_exchange_long_lived = None
-    me = list_pages = ig_media = ig_comments = None
+
 from instagrapi import Client
-from instagrapi.exceptions import (
-    BadPassword, ChallengeRequired, TwoFactorRequired,
-    UserNotFound, PleaseWaitFewMinutes, LoginRequired, ClientError,
-)
+from instagrapi.exceptions import (BadPassword, ChallengeRequired, TwoFactorRequired,
+    UserNotFound, PleaseWaitFewMinutes, LoginRequired, ClientError,)
 
 from device_emulator import emulate_device
 from tasks import fetch_participants_task
 
 # ── Init & logging ─────────────────────────────────────────────────────────────
 load_dotenv()
-
-USE_PROXY_ENV = os.getenv("USE_PROXY", "false").lower() == "true"
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-
-# Ліміт постановки задач користувачем у фіксованому вікні
-MAX_ACTIVE_JOBS_PER_USER = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "3"))
-QUEUE_RATE_LIMIT_WINDOW_SEC = int(os.getenv("QUEUE_RATE_LIMIT_WINDOW_SEC", "3600"))  # 1h вікно
-
-LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
-
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
 
-logger.info(
-    "FB env present: ID=%s SECRET=%s REDIRECT=%s | IG env: ID=%s SECRET=%s REDIRECT=%s",
-    bool(os.getenv("FB_APP_ID")), bool(os.getenv("FB_APP_SECRET")), bool(os.getenv("FB_REDIRECT_URI")),
-    bool(os.getenv("IG_APP_ID")), bool(os.getenv("IG_APP_SECRET")), bool(os.getenv("IG_REDIRECT_URI")),
-)
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# знайдемо де насправді лежить 'static' у контейнері
-STATIC_CANDIDATES = [
-    os.path.join(BASE_DIR, "static"),        # /app/static  (коли api/ "сплющили")
-    os.path.join(BASE_DIR, "api", "static"), # /app/api/static (коли структура збережена)
-]
-STATIC_DIR = next((p for p in STATIC_CANDIDATES if os.path.isdir(p)), STATIC_CANDIDATES[0])
-
-app = Flask(
-    __name__,
-    static_folder=STATIC_DIR,
-    static_url_path="/static",
-)
-
-app.permanent_session_lifetime = timedelta(days=int(os.getenv("SESSION_TTL_DAYS", "30")))
+# ── Flask (Session + CORS) ───────────────────────────
+app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1)
+
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 app.config.update(
     SECRET_KEY=os.getenv("FLASK_SECRET_KEY", "dev-secret-key"),
@@ -86,11 +40,15 @@ app.config.update(
     SESSION_COOKIE_SAMESITE=os.getenv("SESSION_COOKIE_SAMESITE", "None"),
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true",
 )
+from redis import Redis
+# Якщо Railway дасть TLS (`rediss://`), дозволимо під’єднання без сертифіката
 _tls = {"ssl_cert_reqs": None} if redis_url.startswith("rediss://") else {}
 app.config["SESSION_REDIS"] = Redis.from_url(redis_url, **_tls)
+
 Session(app)
 
-# CORS
+# CORS: дозволяємо будь-який локальний порт (localhost / 127.0.0.1)
+# Увага: з credentials не можна '*' — тому використовуємо regex.
 allowed = [
     re.compile(r"^http://localhost:\d+$"),
     re.compile(r"^http://127\.0\.0\.1:\d+$"),
@@ -98,70 +56,32 @@ allowed = [
 railway_origin = os.getenv("CORS_ORIGIN", "").strip()
 if railway_origin:
     allowed.append(railway_origin)
+
 CORS(
     app,
     supports_credentials=True,
     resources={r"/api/*": {"origins": allowed}},
     allow_headers=["Content-Type"],
-    methods=["GET", "POST", "OPTIONS"],
+    methods=["GET","POST","OPTIONS"],
     expose_headers=["Content-Type"],
 )
-
-# ── Redis & RQ ─────────────────────────────────────────
-redis_conn = Redis.from_url(redis_url, **_tls)
+# ── Redis & RQ ─────────────────────────────────────────────────────────────────
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+redis_conn = Redis.from_url(redis_url)
 queue = Queue(connection=redis_conn)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|tv)/[^/]+/?$")
-MENTION_RE = re.compile(r'@([A-Za-z0-9._]+)')
-
-def _canon_key(p):
-    u = str((p.get('username') or '')).lower()
-    pid = str(p.get('id') or p.get('pk') or '')
-    t = str(p.get('text') or p.get('comment') or '')
-    return (u, pid, t)
-
-def _filter_participants(items, *, dedupe_usernames=False,
-                         require_mentions=0, require_hashtag=None,
-                         blacklist=None):
-    out = []
-    seen = set()
-    tag = (require_hashtag or '').strip()
-    tag_lc = tag.lower()
-    bl = {x.lower() for x in (blacklist or [])}
-
-    for p in items:
-        u = str((p.get('username') or '')).strip()
-        if not u or u.lower() in bl:
-            continue
-        txt = str(p.get('text') or p.get('comment') or '')
-        if require_mentions > 0 and len(MENTION_RE.findall(txt)) < require_mentions:
-            continue
-        if tag_lc and f'#{tag_lc}' not in txt.lower():
-            continue
-        if dedupe_usernames:
-            key = u.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-        out.append(p)
-    return out
+URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/p/[^/]+/?$")
+LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
 
 @app.before_request
 def _log_request():
-    hdrs = dict(request.headers)
-    if 'Cookie' in hdrs:
-        hdrs['Cookie'] = '<masked>'
-    body_preview = ''
-    if request.method != "GET":
-        try:
-            if request.path not in ('/api/login', '/api/login_by_sessionid'):
-                body_preview = request.get_data(as_text=True)[:1000]
-            else:
-                body_preview = '<masked>'
-        except Exception:
-            body_preview = '<unreadable>'
-    logger.info(">> %s %s | headers=%s | body=%s", request.method, request.path, hdrs, body_preview)
+    logger.info(">> %s %s | headers=%s", request.method, request.path, dict(request.headers))
+    try:
+        if request.method != "GET":
+            logger.info("   body=%s", request.get_data(as_text=True))
+    except Exception:
+        pass
 
 @app.after_request
 def _log_response(resp):
@@ -177,10 +97,11 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
     cl.private.headers.update({"User-Agent": ua})
 
     logger.info("instagrapi login: start user=%s", username)
-    proxy_url = os.getenv("PROXY_URL")
+    proxy_url = os.getenv("PROXY_URL")  # опційно: додаси у Railway, якщо треба
     if proxy_url:
         cl.set_proxy(proxy_url)
 
+    # невеликі паузи між мережевими викликами instagrapi
     cl.delay_range = [2, 5]
     cl.login(username, password)
     logger.info("instagrapi login: success user=%s", username)
@@ -190,10 +111,13 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
     return sess
 
 # ── LOGIN ──────────────────────────────────────────────────────────────────────
+# payload: { username, password, deviceInfo }
+# return: 200 { settings } + сервер зберігає session["ig_settings"] (cookie)
+# --- У /api/login перенеси emulate_device всередину try та повертай 400 на помилках ---
 @app.route('/api/login', methods=['POST', 'OPTIONS'])
 def login():
     if request.method == 'OPTIONS':
-        return '', 204
+        return '', 204  # preflight OK
 
     data = request.get_json(silent=True) or {}
     username   = (data.get('username') or '').strip()
@@ -202,12 +126,14 @@ def login():
 
     logger.info("LOGIN start for user=%s", username)
 
+    # дефолти – щоб емулятор не падав на порожніх полях
     raw_device.setdefault("userAgent", "Instagram 269.0.0.18.75 Android")
     raw_device.setdefault("platform", "Android")
     raw_device.setdefault("locale", "uk-UA")
     raw_device.setdefault("timezoneOffset", 180)
     raw_device.setdefault("screen", {"width": 1080, "height": 1920, "pixelRatio": 3})
 
+    # ⚓️ стабільний «девайс»: беремо з сесії або створюємо 1 раз
     try:
         emu = session.get('emu_cache')
         if not emu:
@@ -231,6 +157,7 @@ def login():
                         'detail': f'Login took longer than {LOGIN_TIMEOUT_SEC}s'}), 504
 
     except (BadPassword, UserNotFound):
+        # і “пароль невірний”, і “юзера не існує” — однаково
         return jsonify({'error': 'invalid_credentials'}), 401
 
     except ChallengeRequired:
@@ -246,6 +173,7 @@ def login():
         return jsonify({'error': 'login_required'}), 401
 
     except ClientError as e:
+        # інколи “підозрілий логін” маскується під "user not found"
         msg = str(e)
         suspicious_signs = (
             "doesn't belong to an account",
@@ -266,7 +194,9 @@ def login():
     finally:
         logger.info("Login %s finished", username)
 
+    # успішний логін
     session["ig_settings"] = session_settings
+    # корисно також оновити кеш «девайсу» settings-ами, що повернув клієнт
     session['emu_cache'] = {'settings': session_settings, 'device_agent': ua}
     return jsonify({'settings': session_settings}), 200
 
@@ -274,7 +204,7 @@ def login():
 @app.route('/api/collect_device_geo', methods=['POST', 'OPTIONS'])
 def collect_device_geo():
     if request.method == 'OPTIONS':
-        return '', 204
+        return '', 204  # preflight OK
     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
     try:
         import requests as _rq
@@ -283,14 +213,19 @@ def collect_device_geo():
         geo = {}
     return jsonify({"geo": geo, "ip": ip})
 
+# --- ЗАМІНИ роут /api/device_report на більш «терплячий» ---
 @app.route('/api/device_report', methods=['POST', 'OPTIONS'])
 def device_report():
     if request.method == 'OPTIONS':
-        return '', 204
+        return '', 204  # preflight OK
 
+    # безпечний парсинг JSON
     data = request.get_json(silent=True) or {}
     info = data.get('deviceInfo') or data or {}
 
+    # дефолтні значення на випадок порожнього або «неповного» deviceInfo
+    if not info:
+        info = {}
     info.setdefault("userAgent", "Instagram 269.0.0.18.75 Android")
     info.setdefault("platform", "Android")
     info.setdefault("locale", "uk-UA")
@@ -299,7 +234,6 @@ def device_report():
 
     try:
         emu = emulate_device(info, use_phone_code=True)
-        session['emu_cache'] = emu
         return jsonify(emu), 200
     except Exception as e:
         msg = str(e)
@@ -307,149 +241,61 @@ def device_report():
         return jsonify({"error":"proxy_blocked","detail":"csrf_missing"}), 502
     return jsonify({"error":"invalid_device_info","detail":msg}), 400
 
-# ── Async fetch with queue-limit 429 (distinct from IG 429) ────────────────────
+# --- фрагмент api/main.py (оновлений тільки /api/fetch_participants_async) ---
+
 @app.route('/api/fetch_participants_async', methods=['POST', 'OPTIONS'])
 def fetch_async():
     if request.method == 'OPTIONS':
-        return '', 204
+        return '', 204  # preflight OK
 
+    # 🔎 детальний лог того, що реально прийшло
     try:
         raw_body = request.get_data(as_text=True)
     except Exception:
         raw_body = '<cannot read body>'
-    logger.info("FETCH_ASYNC: cookies=<present:%s>", 'Cookie' in request.headers)
+    logger.info("FETCH_ASYNC: cookies=%s", request.headers.get('Cookie'))
     logger.info("FETCH_ASYNC: body=%s", raw_body)
 
+    # ⛔️ немає інста-сесії в серверній cookie-сесії
     if "ig_settings" not in session:
         logger.warning("FETCH_ASYNC: ig_settings missing in session -> session_expired")
-        return jsonify({'error': 'login_required', 'detail': 'session_expired'}), 401
+        return jsonify({
+            'error': 'login_required',
+            'detail': 'session_expired'
+        }), 401
 
-    # ⬇️ ОТРИМАТИ ТІЛО + НОРМАЛІЗАЦІЯ URL
     data = request.get_json(force=True) or {}
-    raw = (data.get('post_url') or '').strip()
-    post_url = raw.split('?', 1)[0].split('#', 1)[0]
+    post_url = (data.get('post_url') or '').strip()
+
+    # Додамо "/" в кінець для стабільності парсингу
     if post_url and not post_url.endswith('/'):
         post_url += '/'
 
-    logger.info("FETCH_ASYNC: normalized post_url=%s", post_url)
+    logger.info("FETCH_ASYNC: parsed post_url=%s", post_url)
 
     if not URL_PATTERN.match(post_url):
         logger.warning("FETCH_ASYNC: invalid_post_url")
         return jsonify({'error': 'invalid_post_url'}), 400
 
-    # пер-користувацький ліміт у фіксованому вікні (залишаєш як було)
-    session_cookie_name = app.config.get("SESSION_COOKIE_NAME", "session")
-    sid = request.cookies.get(session_cookie_name)
-    client_id = sid or request.remote_addr or "anon"
-
-    rl_key = f"rq:rate:{client_id}"
-    n = redis_conn.incr(rl_key)
-    if n == 1:
-        redis_conn.expire(rl_key, QUEUE_RATE_LIMIT_WINDOW_SEC)
-
-    if n > MAX_ACTIVE_JOBS_PER_USER:
-        ttl = redis_conn.ttl(rl_key)
-        retry_after = ttl if isinstance(ttl, int) and ttl > 0 else QUEUE_RATE_LIMIT_WINDOW_SEC
-        payload = {
-            'error': 'too_many_jobs',
-            'limit': MAX_ACTIVE_JOBS_PER_USER,
-            'active': min(n - 1, MAX_ACTIVE_JOBS_PER_USER),
-            'retryAfter': retry_after,
-            'detail': 'active jobs limit hit in fixed window'
-        }
-        resp = jsonify(payload)
-        resp.status_code = 429
-        resp.headers['Retry-After'] = str(retry_after)
-        resp.headers['X-RateLimit-Limit'] = str(MAX_ACTIVE_JOBS_PER_USER)
-        resp.headers['X-RateLimit-Remaining'] = str(max(0, MAX_ACTIVE_JOBS_PER_USER - (n - 1)))
-        resp.headers['X-RateLimit-Reset'] = str(retry_after)
-        return resp
-
-    try:
-        settings_b64 = base64.b64encode(json.dumps(session["ig_settings"]).encode()).decode()
-        job = queue.enqueue(
-            fetch_participants_task,
-            settings_b64,
-            post_url,
-            USE_PROXY_ENV,
-            data.get('device_info'),
-            data.get('region'),
-            job_timeout=600,
-            result_ttl=3600,
-            retry=Retry(max=3, interval=[30, 120, 300]),
-            meta={'client_id': client_id}
-        )
-        logger.info("FETCH_ASYNC: enqueued job_id=%s for %s", job.id, post_url)
-        return jsonify({'job_id': job.id}), 202
-
-    except Exception as e:
-        logger.exception("FETCH_ASYNC: enqueue failed")
-        return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
-
-# ── Deterministic draw ─────────────────────────────────────────────────────────
-@app.route('/api/draw', methods=['POST', 'OPTIONS'])
-def draw():
-    if request.method == 'OPTIONS':
-        return '', 204
-
-    data = request.get_json(silent=True) or {}
-    participants = data.get('participants') or []
-    if not isinstance(participants, list) or not participants:
-        return jsonify({'error':'validation_error','detail':'participants required'}), 400
-
-    try:
-        n = max(1, int(data.get('n') or 1))
-    except Exception:
-        return jsonify({'error':'validation_error','detail':'invalid n'}), 400
-
-    rules = data.get('rules') or {}
-    dedupe = bool(rules.get('dedupe_usernames', False))
-    req_mentions = int(rules.get('require_mentions') or 0)
-    req_hashtag = (rules.get('require_hashtag') or '').strip()
-    blacklist = rules.get('blacklist') or []
-
-    filt = _filter_participants(
-        participants,
-        dedupe_usernames=dedupe,
-        require_mentions=req_mentions,
-        require_hashtag=req_hashtag,
-        blacklist=blacklist
+    settings_b64 = base64.b64encode(json.dumps(session["ig_settings"]).encode()).decode()
+    job = queue.enqueue(
+        fetch_participants_task,
+        settings_b64,
+        post_url,
+        False,                 # use_proxy
+        data.get('device_info'),
+        data.get('region'),
+        job_timeout=600,
+        result_ttl=3600
     )
-    if not filt:
-        return jsonify({'error':'validation_error','detail':'no eligible participants'}), 400
-
-    canon = sorted(filt, key=_canon_key)
-
-    seed = str(data.get('seed') or f"{int(time.time())}:{request.remote_addr or ''}")
-    basis = json.dumps(canon, ensure_ascii=False, sort_keys=True, separators=(',',':')) + '|' + seed
-    h = hashlib.sha256(basis.encode('utf-8')).hexdigest()
-    rnd = random.Random(int(h[:16], 16))
-
-    pool = canon[:]
-    rnd.shuffle(pool)
-
-    k = min(n, len(pool))
-    winners = pool[:k]
-
-    return jsonify({
-        'winners': winners,
-        'count': k,
-        'eligible': len(canon),
-        'proof': h,
-        'seed': seed,
-        'rules': {
-            'dedupe_usernames': dedupe,
-            'require_mentions': req_mentions,
-            'require_hashtag': req_hashtag,
-            'blacklist': blacklist,
-        }
-    }), 200
+    logger.info("FETCH_ASYNC: enqueued job_id=%s for %s", job.id, post_url)
+    return jsonify({'job_id': job.id}), 202
 
 # ── Job status & result ────────────────────────────────────────────────────────
 @app.route('/api/job_status/<job_id>', methods=['GET', 'OPTIONS'])
 def job_status(job_id):
     if request.method == 'OPTIONS':
-        return '', 204
+        return '', 204  # preflight OK
     job = queue.fetch_job(job_id)
     if not job:
         return jsonify({'error': 'not_found'}), 404
@@ -458,7 +304,7 @@ def job_status(job_id):
 @app.route('/api/job_result/<job_id>', methods=['GET', 'OPTIONS'])
 def job_result(job_id):
     if request.method == 'OPTIONS':
-        return '', 204
+        return '', 204  # preflight OK
     job = queue.fetch_job(job_id)
     if not job:
         return jsonify({'error': 'not_found'}), 404
@@ -471,7 +317,7 @@ def job_result(job_id):
         return jsonify({'error': 'internal_error', 'detail': str(job.exc_info)}), 500
     return jsonify({'status': job.get_status()}), 202
 
-# ── Debug ──────────────────────────────────────────────────────────────────────
+# ── Debug (для Flutter) ───────────────────────────────────────────────────────
 @app.route('/api/debug_session', methods=['GET'])
 def debug_session():
     return jsonify({
@@ -479,14 +325,10 @@ def debug_session():
         "ig_settings_present": "ig_settings" in session
     }), 200
 
-# ── Health & Metrics ───────────────────────────────────────────────────────────
+# ── Health ────────────────────────────────────────────────────────────────────
 @app.route('/healthz', methods=['GET'])
 def healthz():
     return jsonify({"ok": True}), 200
-
-@app.get("/metrics")
-def metrics():
-    return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
@@ -501,12 +343,10 @@ def index():
             "/api/fetch_participants_async",
             "/api/job_status/<job_id>",
             "/api/job_result/<job_id>",
-            "/api/draw",
             "/api/debug_session",
         ]
     }), 200
 
-# ── Session auth utils ─────────────────────────────────────────────────────────
 @app.route('/api/login_by_sessionid', methods=['POST', 'OPTIONS'])
 def login_by_sessionid():
     if request.method == 'OPTIONS':
@@ -515,7 +355,40 @@ def login_by_sessionid():
     sid = (data.get('sessionid') or '').strip()
     if not sid:
         return jsonify({'error': 'validation_error', 'detail': 'sessionid required'}), 400
+    
+@app.get("/api/fb/_whoami")
+def fb_whoami():
+    tok = session.get("fb_user_token")
+    if not tok:
+        return jsonify({"error": "login_required"}), 401
 
+    import os
+    import requests as rq
+
+    GRAPH = "https://graph.facebook.com/v21.0"
+
+    def q(path: str, **params):
+        r = rq.get(f"{GRAPH}/{path}",
+                   params={**params, "access_token": tok},
+                   timeout=15)
+        return r.json()
+
+    # debug_token вимагає app access token (app_id|app_secret)
+    app_token = f"{os.getenv('FB_APP_ID')}|{os.getenv('FB_APP_SECRET')}"
+
+    debug = rq.get(f"{GRAPH}/debug_token",
+                   params={"input_token": tok, "access_token": app_token},
+                   timeout=15).json()
+
+    return jsonify({
+        "me": q("me", fields="id,name"),
+        "scopes": q("me/permissions"),                                   # видані пермішени user-токена
+        "accounts": q("me/accounts", fields="id,name,tasks"),            # що реально повертає /me/accounts
+        "debug": debug                                                   # що FB думає про цей токен
+    }), 200
+
+
+    # беремо стабільний «девайс» з кешу, або створюємо
     emu = session.get('emu_cache') or emulate_device({}, use_phone_code=True)
     cl = Client()
     cl.set_settings(emu['settings'])
@@ -537,277 +410,12 @@ def login_by_sessionid():
     session['emu_cache'] = {'settings': session['ig_settings'], 'device_agent': cl.user_agent}
     return jsonify({'ok': True}), 200
 
-def _save_fb_tokens(user_token: str, expires_in: int):
-    session["fb_user_token"] = user_token
-    session["fb_token_expires_at"] = int(time.time()) + int(expires_in)
-
-def _require_fb():
-    tok = session.get("fb_user_token")
-    if not tok:
-        return None
-    # можна перевіряти просту просрочку:
-    if int(session.get("fb_token_expires_at", 0)) <= int(time.time()) + 60:
-        # TODO: оновлення через long-lived повторно або просити перелогін
-        pass
-    return tok
-
-def _ensure_fb_ready():
-    if fb_import_error:
-        return {"error":"fb_module_error","detail":str(fb_import_error)}, 503
-    missing = [k for k in ("FB_APP_ID","FB_APP_SECRET","FB_REDIRECT_URI") if not os.getenv(k)]
-    if missing:
-        return {"error":"fb_env_missing","detail":f"Missing env: {', '.join(missing)}"}, 503
-    return None
-
-@app.get("/api/fb/login_url")
-def fb_login_url_endpoint():
-    # Ігноруємо префетч/пререндер — не мутуємо сесію
-    sp = (request.headers.get("Sec-Purpose") or "").lower()
-    p  = (request.headers.get("Purpose") or "").lower()
-    if "prefetch" in sp or "prefetch" in p:
-        return "", 204
-
-    err = _ensure_fb_ready()
-    if err:
-        return jsonify(err[0]), err[1]
-
-    state = secrets.token_urlsafe(16)
-
-    # Тримаємо КОРОТКИЙ список валідних state в сесії (5 хв)
-    states: list[tuple[str, float]] = session.get("fb_oauth_states", [])
-    now = time.time()
-    states = [(s, t) for (s, t) in states if now - t < 300]  # чистимо старі
-    states.append((state, now))
-    session["fb_oauth_states"] = states
-
-    scopes = [
-        "public_profile", "email",
-        "pages_show_list", "pages_read_engagement",
-        "instagram_basic", "instagram_manage_comments",
-    ]
-    try:
-        url = fb_login_url(state, scopes)
-        # не даємо браузеру кешувати відповідь з URL (зменшує «хитрощі» Chrome)
-        resp = jsonify({"url": url})
-        resp.headers["Cache-Control"] = "no-store"
-        return resp
-    except Exception as e:
-        logger.exception("fb_login_url failed")
-        return jsonify({"error": "config_error", "detail": str(e)}), 503
-
-@app.get("/api/fb/env_debug")
-def fb_env_debug():
-    return jsonify({
-        "FB_APP_ID_set": bool(os.getenv("FB_APP_ID")),
-        "FB_APP_SECRET_set": bool(os.getenv("FB_APP_SECRET")),
-        "FB_REDIRECT_URI": os.getenv("FB_REDIRECT_URI"),
-        "fb_import_error": str(fb_import_error) if fb_import_error else None,
-    }), 200
-
-
-@app.get("/api/fb/callback")
-def fb_callback():
-    code  = request.args.get("code")
-    state = request.args.get("state")
-
-    # Дістаємо дозволені state зі сесії
-    allowed = {s for s, _ in (session.get("fb_oauth_states") or [])}
-    if not code or state not in allowed:
-        return jsonify({"error": "oauth_failed", "detail": "state mismatch or no code"}), 400
-
-    # Видаляємо використаний state (одноразовий)
-    session["fb_oauth_states"] = [(s, t) for (s, t) in (session.get("fb_oauth_states") or []) if s != state]
-
-    try:
-        # 1) code -> короткоживучий FB user token (~1h)
-        short = fb_exchange_code_for_token(code)
-
-        # 2) Пробуємо обміняти на LONG-LIVED FB token (~60 днів)
-        try:
-            longl = fb_exchange_long_lived(short["access_token"])
-            token = longl["access_token"]
-            expires_in = int(longl.get("expires_in", 60*24*3600))
-        except Exception:
-            token = short["access_token"]
-            expires_in = int(short.get("expires_in", 3600))
-
-        # 3) Зберігаємо та валідуємо /me
-        _save_fb_tokens(token, expires_in)
-        who = me(token)
-        return jsonify({"ok": True, "me": who}), 200
-
-    except Exception as e:
-        logger.exception("fb callback failed")
-        return jsonify({"error": "oauth_failed", "detail": str(e)}), 400
-    
-@app.get("/api/ig/accounts")
-def ig_accounts():
-    err = _ensure_fb_ready()
-    if err:
-        # _ensure_fb_ready() повертає (dict, status); це гарантує return
-        return jsonify(err[0]), err[1]
-
-    tok = _require_fb()
-    if not tok:
-        # тут обов’язково return!
-        return jsonify({"error": "login_required", "detail": "fb"}), 401
-
-    try:
-        pages = list_pages(tok)
-
-        rows = []
-        for p in (pages.get("data") or []):
-            ig = (
-                p.get("instagram_business_account")
-                or p.get("connected_instagram_account")
-                or {}
-            )
-            if ig.get("id"):
-                rows.append({
-                    "page_id": p.get("id"),
-                    "page_name": p.get("name"),
-                    "ig_user_id": ig.get("id"),
-                    "ig_username": ig.get("username"),
-                })
-
-        return jsonify({"accounts": rows}), 200
-
-    except Exception as e:
-        logger.exception("ig_accounts failed")
-        return jsonify({"error": "internal_error", "detail": str(e)}), 500
-
-
-@app.get("/api/ig/media")
-def ig_media_list():
-    err = _ensure_fb_ready()
-    if err:
-        return jsonify(err[0]), err[1]
-    tok = _require_fb()
-    if not tok:
-        return jsonify({"error":"login_required","detail":"fb"}), 401
-    ig_user_id = request.args.get("ig_user_id","").strip()
-    after = request.args.get("after")
-    if not ig_user_id:
-        return jsonify({"error":"validation_error","detail":"ig_user_id required"}), 400
-    try:
-        m = ig_media(ig_user_id, tok, limit=50, after=after)
-        return jsonify(m), 200
-    except Exception as e:
-        logger.exception("ig_media_list failed")
-        return jsonify({"error":"internal_error","detail":str(e)}), 500
-
-@app.get("/api/ig/comments")
-def ig_comments_list():
-    err = _ensure_fb_ready()
-    if err:
-        return jsonify(err[0]), err[1]
-    tok = _require_fb()
-    if not tok:
-        return jsonify({"error":"login_required","detail":"fb"}), 401
-    media_id = request.args.get("media_id","").strip()
-    after = request.args.get("after")
-    if not media_id:
-        return jsonify({"error":"validation_error","detail":"media_id required"}), 400
-    try:
-        c = ig_comments(media_id, tok, limit=100, after=after)
-        # нормалізуємо до твоєї моделі participants
-        items = []
-        for row in (c.get("data") or []):
-            items.append({
-                "id": row.get("id"),
-                "username": row.get("username") or "",
-                "text": row.get("text") or "",
-                "timestamp": row.get("timestamp"),
-            })
-        res = {"participants": items, "paging": c.get("paging")}
-        return jsonify(res), 200
-    except Exception as e:
-        logger.exception("ig_comments failed")
-        return jsonify({"error":"internal_error","detail":str(e)}), 500
-
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
 def logout():
-    err = _ensure_fb_ready()
-    if err:
-        return jsonify(err[0]), err[1]
     if request.method == 'OPTIONS':
-        return '', 204
+        return '', 204  # CORS preflight
     session.clear()
     return jsonify({'ok': True}), 200
-
-privacy_fp = os.path.join(app.static_folder, "privacy.html")
-deletion_fp = os.path.join(app.static_folder, "data-deletion.html")
-logger.info("STATIC chosen: %s | exists=%s | privacy=%s | deletion=%s",
-            STATIC_DIR,
-            os.path.isdir(STATIC_DIR),
-            os.path.exists(os.path.join(STATIC_DIR, "privacy.html")),
-            os.path.exists(os.path.join(STATIC_DIR, "data-deletion.html")))
-
-INLINE_PRIVACY = """<!doctype html><meta charset="utf-8">
-<title>Giveawayapp – Privacy Policy</title>
-<h1>Privacy Policy</h1>
-<p>Contact: <a href="mailto:artfbmanager1@gmail.com">artfbmanager1@gmail.com</a></p>
-<p>Data deletion: <a href="/data-deletion">/data-deletion</a></p>
-"""
-
-INLINE_DELETION = """<!doctype html><meta charset="utf-8">
-<title>Giveawayapp – Data Deletion</title>
-<h1>Data Deletion Instructions</h1>
-<ol>
-  <li>Email from the account’s address to
-    <a href="mailto:artfbmanager1@gmail.com">artfbmanager1@gmail.com</a></li>
-  <li>Or revoke the app in Facebook/Instagram settings – we remove tokens and cached data within 30 days.</li>
-</ol>
-"""
-
-def _serve_or_inline(filename: str, inline_html: str):
-    fp = os.path.join(STATIC_DIR, filename)
-    if os.path.exists(fp):
-        resp = send_from_directory(STATIC_DIR, filename, conditional=False)
-        resp.headers["Cache-Control"] = "no-store, max-age=0"
-        return resp
-    return Response(inline_html, 200, {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store, max-age=0"
-    })
-
-@app.get("/privacy")
-def privacy_page():
-    return _serve_or_inline("privacy.html", INLINE_PRIVACY)
-
-@app.get("/data-deletion")
-def data_deletion_page():
-    return _serve_or_inline("data-deletion.html", INLINE_DELETION)
-
-@app.get("/api/fb/debug_pages")
-def fb_debug_pages():
-    tok = _require_fb()
-    if not tok:
-        return jsonify({"error":"login_required"}), 401
-    try:
-        raw = list_pages(tok)
-        return jsonify(raw), 200
-    except Exception as e:
-        return jsonify({"error":"graph_error","detail":str(e)}), 500
-
-@app.get("/__static_diag")
-def static_diag():
-    try:
-        files = sorted(os.listdir(STATIC_DIR))
-    except Exception as e:
-        files = [f"<error: {e}>"]
-    return jsonify({
-        "BASE_DIR": BASE_DIR,
-        "STATIC_DIR": STATIC_DIR,
-        "exists": os.path.isdir(STATIC_DIR),
-        "files": files,
-    }), 200
-
-def _ensure_ig_ready():
-    missing = [k for k in ("IG_APP_ID", "IG_APP_SECRET", "IG_REDIRECT_URI") if not os.getenv(k)]
-    if missing:
-        return ({"error": "ig_env_missing", "detail": f"Missing env: {', '.join(missing)}"}, 503)
-    return None
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)

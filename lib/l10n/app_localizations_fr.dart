@@ -88,11 +88,6 @@ class AppLocalizationsFr extends AppLocalizations {
       'Trop de requêtes. Veuillez patienter quelques minutes.';
 
   @override
-  String error_too_many_jobs(int active, int limit, String mm, String ss) {
-    return 'La file d’attente est saturée. Vous avez déjà $active tâches en cours sur $limit. Réessayez dans $mm:$ss.';
-  }
-
-  @override
   String get error_session_expired =>
       'Session expirée. Veuillez vous reconnecter.';
 

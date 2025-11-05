@@ -1,28 +1,38 @@
 // lib/main.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:giveaway_app/l10n/app_localizations.dart';
-
 import 'screens/login_screen.dart';
 import 'screens/participants_screen.dart';
-import 'services/auth_service.dart';
-import 'utils/api_exception.dart';
+import 'package:giveaway_app/services/api_client.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
-  runApp(const MyApp());
+
+  // важливо: підключити PersistCookieJar до Dio
+  await ApiClient().initCookies();
+
+  final prefs = await SharedPreferences.getInstance();
+  final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+
+  runApp(MyApp(initialRoute: isLoggedIn ? '/participants' : '/login'));
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+  final String initialRoute;
+  const MyApp({required this.initialRoute, super.key});
+
   @override
   State<MyApp> createState() => _MyAppState();
 }
 
 class _MyAppState extends State<MyApp> {
   Locale _locale = const Locale('uk');
-  void _switchLocale(Locale l) => setState(() => _locale = l);
+
+  void _switchLocale(Locale locale) => setState(() => _locale = locale);
 
   @override
   Widget build(BuildContext context) {
@@ -30,62 +40,14 @@ class _MyAppState extends State<MyApp> {
       locale: _locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
-      onGenerateTitle: (ctx) => AppLocalizations.of(ctx)!.app_name,
-      initialRoute: '/gate',
+      onGenerateTitle: (context) => AppLocalizations.of(context)!.app_name,
+      initialRoute: widget.initialRoute,
       routes: {
-        '/gate': (_) => _Gate(onLocaleChanged: _switchLocale),
-        '/login': (_) => LoginScreen(onLocaleChanged: _switchLocale),
-        '/participants': (_) =>
+        '/': (ctx) => LoginScreen(onLocaleChanged: _switchLocale),
+        '/login': (ctx) => LoginScreen(onLocaleChanged: _switchLocale),
+        '/participants': (ctx) =>
             ParticipantsScreen(onLocaleChanged: _switchLocale),
       },
-    );
-  }
-}
-
-class _Gate extends StatefulWidget {
-  final ValueChanged<Locale> onLocaleChanged;
-  const _Gate({required this.onLocaleChanged});
-  @override
-  State<_Gate> createState() => _GateState();
-}
-
-class _GateState extends State<_Gate> {
-  @override
-  void initState() {
-    super.initState();
-    _check();
-  }
-
-  Future<void> _check() async {
-    try {
-      final m = await AuthService().debugSession();
-      final ok = m['ig_settings_present'] == true;
-      if (!mounted) return;
-      Navigator.of(context)
-          .pushReplacementNamed(ok ? '/participants' : '/login');
-    } on ApiException {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/login');
-    } catch (_) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/login');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context)!;
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            CircularProgressIndicator(),
-            SizedBox(height: 12),
-            // Можна додати логотип/текст, але не обов'язково
-          ],
-        ),
-      ),
     );
   }
 }
