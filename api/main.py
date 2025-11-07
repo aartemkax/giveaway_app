@@ -34,7 +34,7 @@ logger = logging.getLogger("api")
 # ── FB Graph (імпорт після dotenv) ────────────────────────────────────────────
 fb_import_error = None
 try:
-    from fb_graph import (
+    from api.fb_graph import (
         login_url as fb_login_url,
         exchange_code_for_token as fb_exchange_code_for_token,
         exchange_long_lived as fb_exchange_long_lived,
@@ -326,6 +326,31 @@ def __routes():
 @app.route('/healthz', methods=['GET'])
 def healthz():
     return jsonify({"ok": True}), 200
+
+# ── Privacy & Data Deletion ────────────────────────────────────────────────────
+@app.get("/privacy")
+def privacy_page():
+    html = """
+    <!doctype html><meta charset="utf-8">
+    <title>Privacy Policy</title>
+    <h1>Privacy Policy</h1>
+    <p>We only process data necessary to run the giveaway tool. 
+    We do not sell or share personal data with third parties.</p>
+    <h2>Contact</h2>
+    <p>Email: support@example.com</p>
+    """
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+@app.get("/data-deletion")
+def data_deletion_page():
+    html = """
+    <!doctype html><meta charset="utf-8">
+    <title>Data Deletion</title>
+    <h1>Data Deletion Instructions</h1>
+    <p>If you want your data deleted, email support@example.com with your IG/FB ID. 
+    We will delete server-side session data and job artifacts within 24–72 hours.</p>
+    """
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 # ── Facebook OAuth & Graph ─────────────────────────────────────────────────────
 def _save_fb_tokens(user_token: str, expires_in: int):
