@@ -585,6 +585,7 @@ def login_by_sessionid():
     session['ig_settings'] = cl.get_settings()
     session['emu_cache'] = {'settings': session['ig_settings'], 'device_agent': cl.user_agent}
     return jsonify({'ok': True}), 200
+    
 
 @app.get("/api/fb/_whoami")
 def fb_whoami():
@@ -611,6 +612,13 @@ def fb_whoami():
         "debug": debug
     }), 200
 
+@app.route('/api/logout', methods=['POST', 'OPTIONS'])
+def logout():
+    if request.method == 'OPTIONS':
+        return '', 204
+    session.clear()
+    return jsonify({'ok': True}), 200
+
 @app.get("/api/fb/import_debug")
 def fb_import_dbg():
     info = {
@@ -628,14 +636,6 @@ def fb_import_dbg():
 def __routes():
     rules = sorted(str(r) for r in app.url_map.iter_rules())
     return jsonify({"rules": rules}), 200
-
-
-@app.route('/api/logout', methods=['POST', 'OPTIONS'])
-def logout():
-    if request.method == 'OPTIONS':
-        return '', 204
-    session.clear()
-    return jsonify({'ok': True}), 200
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
