@@ -318,10 +318,10 @@ def debug_session():
         "ig_settings_present": "ig_settings" in session
     }), 200
 
-@app.get("/__routes")
-def __routes():
+@app.get("/__routes_dbg", endpoint="__routes_dbg")
+def __routes_dbg():
     rules = sorted(str(r) for r in app.url_map.iter_rules())
-    return jsonify({"rules": rules}), 200
+    return jsonify({"rules": rules, "dbg": True}), 200
 
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.route('/healthz', methods=['GET'])
@@ -551,7 +551,7 @@ def index():
             "/api/ig/accounts",
             "/api/ig/media?ig_user_id=...",
             "/api/ig/comments?media_id=...",
-            "/__routes",
+            "/__routes_dbg",
         ]
     }), 200
 
@@ -631,11 +631,6 @@ def fb_import_dbg():
     except Exception as e:
         info["module_exc"] = str(e)
     return jsonify(info), 200
-
-@app.get("/__routes")
-def __routes():
-    rules = sorted(str(r) for r in app.url_map.iter_rules())
-    return jsonify({"rules": rules}), 200
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
