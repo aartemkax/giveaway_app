@@ -611,6 +611,25 @@ def fb_whoami():
         "debug": debug
     }), 200
 
+@app.get("/api/fb/import_debug")
+def fb_import_dbg():
+    info = {
+        "fb_import_error": str(fb_import_error) if fb_import_error else None,
+    }
+    try:
+        import api.fb_graph as m
+        info["module"] = str(m)
+        info["module_file"] = getattr(m, "__file__", None)
+    except Exception as e:
+        info["module_exc"] = str(e)
+    return jsonify(info), 200
+
+@app.get("/__routes")
+def __routes():
+    rules = sorted(str(r) for r in app.url_map.iter_rules())
+    return jsonify({"rules": rules}), 200
+
+
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
 def logout():
     if request.method == 'OPTIONS':
