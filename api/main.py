@@ -8,6 +8,7 @@ import re
 import time
 import secrets
 import concurrent.futures as futures
+from flask import Response
 
 from flask import Flask, request, jsonify, session, Response
 from flask_cors import CORS
@@ -35,11 +36,11 @@ logger = logging.getLogger("api")
 fb_import_error = None
 try:
     from api.fb_graph import (
-        login_url as fb_login_url,
-        exchange_code_for_token as fb_exchange_code_for_token,
-        exchange_long_lived as fb_exchange_long_lived,
-        me, list_pages, ig_media, ig_comments,
-    )
+    login_url as fb_login_url,
+    exchange_code_for_token as fb_exchange_code_for_token,
+    exchange_long_lived as fb_exchange_long_lived,
+    me, list_pages, ig_media, ig_comments,
+)
 except Exception as e:
     fb_import_error = e
     fb_login_url = fb_exchange_code_for_token = fb_exchange_long_lived = None
