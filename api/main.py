@@ -35,7 +35,7 @@ logger = logging.getLogger("api")
 # ── FB Graph (імпорт після dotenv) ────────────────────────────────────────────
 fb_import_error = None
 try:
-    from api.fb_graph import (
+    from fb_graph import (
     login_url as fb_login_url,
     exchange_code_for_token as fb_exchange_code_for_token,
     exchange_long_lived as fb_exchange_long_lived,
