@@ -323,6 +323,47 @@ def __routes_dbg():
     rules = sorted(str(r) for r in app.url_map.iter_rules())
     return jsonify({"rules": rules, "dbg": True}), 200
 
+# ── FB Diag ───────────────────────────────────────────────────────────────────
+@app.get("/api/fb/diag")
+def fb_diag():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error":"login_required"}), 401
+
+    import requests as rq
+    GRAPH = "https://graph.facebook.com/v21.0"
+
+    def q(path, **params):
+        r = rq.get(f"{GRAPH}/{path}", params={**params, "access_token": tok}, timeout=20)
+        try:
+            return r.json()
+        except Exception:
+            return {"error":"bad_json","text":r.text}
+
+    me = q("me", fields="id,name")
+    perms = q("me/permissions")
+    pages = q("me/accounts",
+              fields="id,name,perms,instagram_business_account,connected_instagram_account")
+
+    # Для кожної Page ще раз явно тягнемо IG-поля
+    pages_details = []
+    for p in (pages.get("data") or []):
+        pid = p.get("id")
+        if not pid: 
+            continue
+        details = q(pid, fields="id,name,instagram_business_account,connected_instagram_account")
+        pages_details.append(details)
+
+    return jsonify({
+        "me": me,
+        "permissions": perms,          # перевір статуси granted/declined
+        "pages": pages,                # чи є взагалі сторінки
+        "pages_details": pages_details # чи підв’язаний IG до кожної
+    }), 200
+
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.route('/healthz', methods=['GET'])
 def healthz():
