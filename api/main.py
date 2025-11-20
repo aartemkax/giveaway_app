@@ -486,6 +486,7 @@ def fb_callback():
         logger.exception("fb callback failed")
         return jsonify({"error": "oauth_failed", "detail": str(e)}), 400
 
+# ── FB Graph endpoints ────────────────────────────────────────────────────────
 @app.get("/api/fb/debug_pages")
 def fb_debug_pages():
     tok = _require_fb()
@@ -497,6 +498,23 @@ def fb_debug_pages():
     except Exception as e:
         logger.exception("fb_debug_pages failed")
         return jsonify({"error": "graph_error", "detail": str(e)}), 500
+    
+@app.get("/api/fb/page_debug")
+def fb_page_debug():
+    tok = session.get("fb_user_token")
+    if not tok:
+        return jsonify({"error": "login_required"}), 401
+    import requests as rq
+    page_id = request.args.get("page_id", "").strip()
+    if not page_id:
+        return jsonify({"error": "validation_error", "detail": "page_id required"}), 400
+    fields = "id,name,instagram_business_account,connected_instagram_account,perms,task,tasks,link"
+    r = rq.get(
+        f"https://graph.facebook.com/v21.0/{page_id}",
+        params={"fields": fields, "access_token": tok},
+        timeout=15
+    )
+    return jsonify(r.json()), 200
 
 @app.get("/api/ig/accounts")
 def ig_accounts():
