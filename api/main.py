@@ -8,6 +8,8 @@ import re
 import time
 import secrets
 import concurrent.futures as futures
+import requests as rq
+GRAPH = "https://graph.facebook.com/v21.0"
 from flask import Response
 
 from flask import Flask, request, jsonify, session, Response
@@ -501,20 +503,61 @@ def fb_debug_pages():
     
 @app.get("/api/fb/page_debug")
 def fb_page_debug():
-    tok = session.get("fb_user_token")
+    pid = (request.args.get("page_id") or "").strip()
+    if not pid:
+        return jsonify({"error": "validation_error", "detail": "page_id required"}), 400
+
+    tok = _require_fb()
     if not tok:
         return jsonify({"error": "login_required"}), 401
-    import requests as rq
-    page_id = request.args.get("page_id", "").strip()
-    if not page_id:
-        return jsonify({"error": "validation_error", "detail": "page_id required"}), 400
-    fields = "id,name,instagram_business_account,connected_instagram_account,perms,task,tasks,link"
-    r = rq.get(
-        f"https://graph.facebook.com/v21.0/{page_id}",
-        params={"fields": fields, "access_token": tok},
-        timeout=15
+
+    # 1) Отримаємо базові поля Page + IG-зв’язок (без 'perms'!)
+    page_fields = (
+        "id,name,"
+        "instagram_business_account{id,username,name},"
+        "connected_instagram_account{id,username},"
+        "picture{url}"
     )
-    return jsonify(r.json()), 200
+    page = rq.get(
+        f"{GRAPH}/{pid}",
+        params={"fields": page_fields, "access_token": tok},
+        timeout=20
+    ).json()
+
+    # 2) Спробуємо витягнути page access token (потрібні права на сторінку)
+    page_token = None
+    try:
+        acc = rq.get(
+            f"{GRAPH}/{pid}",
+            params={"fields": "access_token", "access_token": tok},
+            timeout=20
+        ).json()
+        page_token = acc.get("access_token")
+    except Exception:
+        pass
+
+    # 3) Якщо маємо IG user id — збагачуємо мінімальною інфою
+    ig_block = page.get("instagram_business_account") or page.get("connected_instagram_account") or {}
+    ig_user_id = ig_block.get("id")
+
+    ig_profile = None
+    if ig_user_id and page_token:
+        try:
+            ig_profile = rq.get(
+                f"{GRAPH}/{ig_user_id}",
+                params={"fields": "id,username,followers_count,media_count", "access_token": page_token},
+                timeout=20
+            ).json()
+        except Exception as e:
+            ig_profile = {"error": str(e)}
+
+    return jsonify({
+        "page_id": pid,
+        "page": page,
+        "page_access_token_present": bool(page_token),
+        "ig_user_id": ig_user_id,
+        "ig_profile": ig_profile,
+    }), 200
 
 @app.get("/api/ig/accounts")
 def ig_accounts():
