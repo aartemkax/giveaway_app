@@ -591,36 +591,67 @@ def ig_accounts():
 @app.get("/api/ig/media")
 def ig_media_list():
     err = _ensure_fb_ready()
-    if err:
-        return jsonify(err[0]), err[1]
-    tok = _require_fb()
-    if not tok:
-        return jsonify({"error": "login_required", "detail": "fb"}), 401
-    ig_user_id = request.args.get("ig_user_id", "").strip()
-    after = request.args.get("after")
+    if err: return jsonify(err[0]), err[1]
+    user_tok = _require_fb()
+    if not user_tok: return jsonify({"error":"login_required","detail":"fb"}), 401
+
+    ig_user_id = (request.args.get("ig_user_id") or "").strip()
+    page_id    = (request.args.get("page_id") or "").strip()
+    after      = request.args.get("after")
     if not ig_user_id:
-        return jsonify({"error": "validation_error", "detail": "ig_user_id required"}), 400
+        return jsonify({"error":"validation_error","detail":"ig_user_id required"}), 400
+
+    access_token = user_tok
+    # якщо передали page_id — отримаємо page access token
+    if page_id:
+        try:
+            import requests as rq
+            GRAPH = "https://graph.facebook.com/v21.0"
+            acc = rq.get(f"{GRAPH}/{page_id}",
+                         params={"fields":"access_token","access_token":user_tok},
+                         timeout=20).json()
+            page_tok = acc.get("access_token")
+            if page_tok:
+                access_token = page_tok
+        except Exception:
+            pass
+
     try:
-        m = ig_media(ig_user_id, tok, limit=50, after=after)
+        m = ig_media(ig_user_id, access_token, limit=50, after=after)
         return jsonify(m), 200
     except Exception as e:
         logger.exception("ig_media_list failed")
-        return jsonify({"error": "internal_error", "detail": str(e)}), 500
-
+        return jsonify({"error":"internal_error","detail":str(e)}), 500
+    
 @app.get("/api/ig/comments")
 def ig_comments_list():
     err = _ensure_fb_ready()
-    if err:
-        return jsonify(err[0]), err[1]
-    tok = _require_fb()
-    if not tok:
-        return jsonify({"error": "login_required", "detail": "fb"}), 401
-    media_id = request.args.get("media_id", "").strip()
-    after = request.args.get("after")
+    if err: return jsonify(err[0]), err[1]
+    user_tok = _require_fb()
+    if not user_tok: return jsonify({"error":"login_required","detail":"fb"}), 401
+
+    media_id = (request.args.get("media_id") or "").strip()
+    page_id  = (request.args.get("page_id") or "").strip()
+    after    = request.args.get("after")
     if not media_id:
-        return jsonify({"error": "validation_error", "detail": "media_id required"}), 400
+        return jsonify({"error":"validation_error","detail":"media_id required"}), 400
+
+    access_token = user_tok
+    if page_id:
+        try:
+            import requests as rq
+            GRAPH = "https://graph.facebook.com/v21.0"
+            acc = rq.get(f"{GRAPH}/{page_id}",
+                         params={"fields":"access_token","access_token":user_tok},
+                         timeout=20).json()
+            page_tok = acc.get("access_token")
+            if page_tok:
+                access_token = page_tok
+        except Exception:
+            pass
+
     try:
-        c = ig_comments(media_id, tok, limit=100, after=after)
+        c = ig_comments(media_id, access_token, limit=100, after=after)
         items = [{
             "id": row.get("id"),
             "username": row.get("username") or "",
@@ -630,7 +661,7 @@ def ig_comments_list():
         return jsonify({"participants": items, "paging": c.get("paging")}), 200
     except Exception as e:
         logger.exception("ig_comments failed")
-        return jsonify({"error": "internal_error", "detail": str(e)}), 500
+        return jsonify({"error":"internal_error","detail":str(e)}), 500
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
