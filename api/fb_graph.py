@@ -52,7 +52,7 @@ def list_pages(token: str) -> dict:
 
 def ig_media(ig_user_id: str, token: str, limit=50, after=None) -> dict:
     params = {
-        "fields": "id,caption,media_type,media_url,timestamp,permalink",
+        "fields": "id,caption,media_type,media_url,timestamp,permalink,comments_count,like_count",
         "limit": limit, "access_token": token
     }
     if after: params["after"] = after

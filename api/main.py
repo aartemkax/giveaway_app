@@ -325,6 +325,32 @@ def __routes_dbg():
     rules = sorted(str(r) for r in app.url_map.iter_rules())
     return jsonify({"rules": rules, "dbg": True}), 200
 
+@app.get("/api/ig/comments_debug")
+def ig_comments_debug():
+    user_tok = _require_fb()
+    if not user_tok:
+        return jsonify({"error":"login_required"}), 401
+    media_id = (request.args.get("media_id") or "").strip()
+    page_id  = (request.args.get("page_id") or "").strip()
+    if not media_id:
+        return jsonify({"error":"validation_error","detail":"media_id required"}), 400
+
+    access_token = user_tok
+    if page_id:
+        acc = rq.get(f"{GRAPH}/{page_id}",
+                     params={"fields":"access_token","access_token":user_tok}, timeout=20).json()
+        access_token = acc.get("access_token") or access_token
+
+    # 1) лічильники по медіа
+    meta = rq.get(f"{GRAPH}/{media_id}",
+                  params={"fields":"id,comments_count,like_count","access_token":access_token},
+                  timeout=20).json()
+    # 2) перші 5 коментів
+    comm = rq.get(f"{GRAPH}/{media_id}/comments",
+                  params={"fields":"id,username,text,timestamp", "limit":5, "access_token":access_token},
+                  timeout=20).json()
+    return jsonify({"meta": meta, "sample": comm}), 200
+
 # ── FB Diag ───────────────────────────────────────────────────────────────────
 @app.get("/api/fb/diag")
 def fb_diag():
