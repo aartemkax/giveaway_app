@@ -8,6 +8,8 @@ import re
 import time
 import secrets
 import concurrent.futures as futures
+import random, hashlib
+import csv, io
 import requests as rq
 GRAPH = "https://graph.facebook.com/v21.0"
 from flask import Response
@@ -351,6 +353,123 @@ def ig_comments_debug():
                   timeout=20).json()
     return jsonify({"meta": meta, "sample": comm}), 200
 
+@app.get("/api/fb/env_debug")
+def fb_env_debug():
+    return jsonify({
+        "FB_APP_ID_set": bool(os.getenv("FB_APP_ID")),
+        "FB_APP_SECRET_set": bool(os.getenv("FB_APP_SECRET")),
+        "FB_REDIRECT_URI": os.getenv("FB_REDIRECT_URI"),
+        "fb_import_error": str(fb_import_error) if fb_import_error else None,
+    }), 200
+
+@app.get("/api/fb/debug_pages")
+def fb_debug_pages():
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error": "login_required"}), 401
+    try:
+        raw = list_pages(tok)
+        return jsonify(raw), 200
+    except Exception as e:
+        logger.exception("fb_debug_pages failed")
+        return jsonify({"error": "graph_error", "detail": str(e)}), 500
+    
+@app.get("/api/fb/page_debug")
+def fb_page_debug():
+    pid = (request.args.get("page_id") or "").strip()
+    if not pid:
+        return jsonify({"error": "validation_error", "detail": "page_id required"}), 400
+
+    tok = _require_fb()
+    if not tok:
+        return jsonify({"error": "login_required"}), 401
+
+    # 1) Отримаємо базові поля Page + IG-зв’язок (без 'perms'!)
+    page_fields = (
+        "id,name,"
+        "instagram_business_account{id,username,name},"
+        "connected_instagram_account{id,username},"
+        "picture{url}"
+    )
+    page = rq.get(
+        f"{GRAPH}/{pid}",
+        params={"fields": page_fields, "access_token": tok},
+        timeout=20
+    ).json()
+
+    # 2) Спробуємо витягнути page access token (потрібні права на сторінку)
+    page_token = None
+    try:
+        acc = rq.get(
+            f"{GRAPH}/{pid}",
+            params={"fields": "access_token", "access_token": tok},
+            timeout=20
+        ).json()
+        page_token = acc.get("access_token")
+    except Exception:
+        pass
+
+    # 3) Якщо маємо IG user id — збагачуємо мінімальною інфою
+    ig_block = page.get("instagram_business_account") or page.get("connected_instagram_account") or {}
+    ig_user_id = ig_block.get("id")
+
+    ig_profile = None
+    if ig_user_id and page_token:
+        try:
+            ig_profile = rq.get(
+                f"{GRAPH}/{ig_user_id}",
+                params={"fields": "id,username,followers_count,media_count", "access_token": page_token},
+                timeout=20
+            ).json()
+        except Exception as e:
+            ig_profile = {"error": str(e)}
+
+    return jsonify({
+        "page_id": pid,
+        "page": page,
+        "page_access_token_present": bool(page_token),
+        "ig_user_id": ig_user_id,
+        "ig_profile": ig_profile,
+    }), 200
+
+@app.get("/api/fb/import_debug")
+def fb_import_dbg():
+    info = {
+        "fb_import_error": str(fb_import_error) if fb_import_error else None,
+    }
+    try:
+        import api.fb_graph as m
+        info["module"] = str(m)
+        info["module_file"] = getattr(m, "__file__", None)
+    except Exception as e:
+        info["module_exc"] = str(e)
+    return jsonify(info), 200
+
+@app.get("/api/fb/_whoami")
+def fb_whoami():
+    tok = session.get("fb_user_token")
+    if not tok:
+        return jsonify({"error": "login_required"}), 401
+
+    import requests as rq
+    GRAPH = "https://graph.facebook.com/v21.0"
+
+    def q(path: str, **params):
+        r = rq.get(f"{GRAPH}/{path}", params={**params, "access_token": tok}, timeout=15)
+        return r.json()
+
+    app_token = f"{os.getenv('FB_APP_ID')}|{os.getenv('FB_APP_SECRET')}"
+    debug = rq.get(f"{GRAPH}/debug_token",
+                   params={"input_token": tok, "access_token": app_token},
+                   timeout=15).json()
+
+    return jsonify({
+        "me": q("me", fields="id,name"),
+        "scopes": q("me/permissions"),
+        "accounts": q("me/accounts", fields="id,name,tasks"),
+        "debug": debug
+    }), 200
+
 # ── FB Diag ───────────────────────────────────────────────────────────────────
 @app.get("/api/fb/diag")
 def fb_diag():
@@ -444,15 +563,6 @@ def _ensure_fb_ready():
         return {"error": "fb_env_missing", "detail": f"Missing env: {', '.join(missing)}"}, 503
     return None
 
-@app.get("/api/fb/env_debug")
-def fb_env_debug():
-    return jsonify({
-        "FB_APP_ID_set": bool(os.getenv("FB_APP_ID")),
-        "FB_APP_SECRET_set": bool(os.getenv("FB_APP_SECRET")),
-        "FB_REDIRECT_URI": os.getenv("FB_REDIRECT_URI"),
-        "fb_import_error": str(fb_import_error) if fb_import_error else None,
-    }), 200
-
 @app.get("/api/fb/login_url")
 def fb_login_url_endpoint():
     sp = (request.headers.get("Sec-Purpose") or "").lower()
@@ -515,76 +625,6 @@ def fb_callback():
         return jsonify({"error": "oauth_failed", "detail": str(e)}), 400
 
 # ── FB Graph endpoints ────────────────────────────────────────────────────────
-@app.get("/api/fb/debug_pages")
-def fb_debug_pages():
-    tok = _require_fb()
-    if not tok:
-        return jsonify({"error": "login_required"}), 401
-    try:
-        raw = list_pages(tok)
-        return jsonify(raw), 200
-    except Exception as e:
-        logger.exception("fb_debug_pages failed")
-        return jsonify({"error": "graph_error", "detail": str(e)}), 500
-    
-@app.get("/api/fb/page_debug")
-def fb_page_debug():
-    pid = (request.args.get("page_id") or "").strip()
-    if not pid:
-        return jsonify({"error": "validation_error", "detail": "page_id required"}), 400
-
-    tok = _require_fb()
-    if not tok:
-        return jsonify({"error": "login_required"}), 401
-
-    # 1) Отримаємо базові поля Page + IG-зв’язок (без 'perms'!)
-    page_fields = (
-        "id,name,"
-        "instagram_business_account{id,username,name},"
-        "connected_instagram_account{id,username},"
-        "picture{url}"
-    )
-    page = rq.get(
-        f"{GRAPH}/{pid}",
-        params={"fields": page_fields, "access_token": tok},
-        timeout=20
-    ).json()
-
-    # 2) Спробуємо витягнути page access token (потрібні права на сторінку)
-    page_token = None
-    try:
-        acc = rq.get(
-            f"{GRAPH}/{pid}",
-            params={"fields": "access_token", "access_token": tok},
-            timeout=20
-        ).json()
-        page_token = acc.get("access_token")
-    except Exception:
-        pass
-
-    # 3) Якщо маємо IG user id — збагачуємо мінімальною інфою
-    ig_block = page.get("instagram_business_account") or page.get("connected_instagram_account") or {}
-    ig_user_id = ig_block.get("id")
-
-    ig_profile = None
-    if ig_user_id and page_token:
-        try:
-            ig_profile = rq.get(
-                f"{GRAPH}/{ig_user_id}",
-                params={"fields": "id,username,followers_count,media_count", "access_token": page_token},
-                timeout=20
-            ).json()
-        except Exception as e:
-            ig_profile = {"error": str(e)}
-
-    return jsonify({
-        "page_id": pid,
-        "page": page,
-        "page_access_token_present": bool(page_token),
-        "ig_user_id": ig_user_id,
-        "ig_profile": ig_profile,
-    }), 200
-
 @app.get("/api/ig/accounts")
 def ig_accounts():
     err = _ensure_fb_ready()
@@ -688,6 +728,110 @@ def ig_comments_list():
     except Exception as e:
         logger.exception("ig_comments failed")
         return jsonify({"error":"internal_error","detail":str(e)}), 500
+    
+@app.get("/api/ig/comments_all")
+def ig_comments_all():
+    err = _ensure_fb_ready()
+    if err: return jsonify(err[0]), err[1]
+    user_tok = _require_fb()
+    if not user_tok: return jsonify({"error":"login_required"}), 401
+
+    media_id = (request.args.get("media_id") or "").strip()
+    page_id  = (request.args.get("page_id") or "").strip()
+    if not media_id: return jsonify({"error":"validation_error","detail":"media_id required"}), 400
+
+    access_token = user_tok
+    if page_id:
+        acc = rq.get(f"{GRAPH}/{page_id}",
+                     params={"fields":"access_token","access_token":user_tok}, timeout=20).json()
+        access_token = acc.get("access_token") or user_tok
+
+    out, after = [], None
+    while True:
+        r = ig_comments(media_id, access_token, limit=100, after=after)
+        items = [{
+            "id": row.get("id"),
+            "username": row.get("username") or "",
+            "text": row.get("text") or "",
+            "timestamp": row.get("timestamp"),
+        } for row in (r.get("data") or [])]
+        out.extend(items)
+        after = (((r.get("paging") or {}).get("cursors") or {}).get("after"))
+        if not after: break
+        time.sleep(0.2)
+    return jsonify({"participants": out, "count": len(out)}), 200
+
+def _filter_participants(rows, required_hashtags=None, min_mentions=0,
+                         started_at=None, ended_at=None, denylist=None):
+    required_hashtags = [h.lower() for h in (required_hashtags or [])]
+    denylist = set(denylist or [])
+    seen_users, out = set(), []
+    for r in rows:
+        usr = (r.get("username") or "").lower()
+        if usr in seen_users: continue
+        if usr in denylist: continue
+        txt = r.get("text") or ""
+        if required_hashtags and not any(h in txt.lower() for h in required_hashtags):
+            continue
+        mentions = len(re.findall(r"@\w+", txt))
+        if mentions < min_mentions: continue
+        ts = r.get("timestamp")
+        if started_at and ts and ts < started_at: continue
+        if ended_at and ts and ts > ended_at: continue
+        seen_users.add(usr)
+        out.append(r)
+    return out
+
+@app.post("/api/ig/comments_filter")
+def ig_comments_filter():
+    data = request.get_json(silent=True) or {}
+    rows = data.get("participants") or []
+    params = {
+        "required_hashtags": data.get("required_hashtags"),
+        "min_mentions": int(data.get("min_mentions") or 0),
+        "started_at": data.get("started_at"),  # ISO8601 або None
+        "ended_at": data.get("ended_at"),
+        "denylist": data.get("denylist"),
+    }
+    clean = _filter_participants(rows, **params)
+    return jsonify({"participants": clean, "count": len(clean)}), 200
+
+def _pick_winners(users, k, seed_str):
+    seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
+    rnd = random.Random(seed)
+    pool = list(users)
+    rnd.shuffle(pool)
+    return pool[:k]
+
+@app.post("/api/ig/draw")
+def ig_draw():
+    data = request.get_json(silent=True) or {}
+    rows = data.get("participants") or []
+    k = int(data.get("winners") or 1)
+    seed = data.get("seed") or f"{time.time_ns()}"
+    winners = _pick_winners(rows, k, seed)
+    return jsonify({
+        "seed": seed,
+        "winners": winners,
+        "pool_size": len(rows)
+    }), 200
+
+@app.post("/api/ig/export_csv")
+def export_csv():
+    rows = (request.get_json(silent=True) or {}).get("participants") or []
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=["username","text","timestamp","id"])
+    w.writeheader()
+    for r in rows:
+        w.writerow({
+            "username": r.get("username",""),
+            "text": r.get("text",""),
+            "timestamp": r.get("timestamp",""),
+            "id": r.get("id",""),
+        })
+    return Response(buf.getvalue(),
+                    mimetype="text/csv",
+                    headers={"Content-Disposition":"attachment; filename=participants.csv"})
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
@@ -744,32 +888,6 @@ def login_by_sessionid():
     session['ig_settings'] = cl.get_settings()
     session['emu_cache'] = {'settings': session['ig_settings'], 'device_agent': cl.user_agent}
     return jsonify({'ok': True}), 200
-    
-
-@app.get("/api/fb/_whoami")
-def fb_whoami():
-    tok = session.get("fb_user_token")
-    if not tok:
-        return jsonify({"error": "login_required"}), 401
-
-    import requests as rq
-    GRAPH = "https://graph.facebook.com/v21.0"
-
-    def q(path: str, **params):
-        r = rq.get(f"{GRAPH}/{path}", params={**params, "access_token": tok}, timeout=15)
-        return r.json()
-
-    app_token = f"{os.getenv('FB_APP_ID')}|{os.getenv('FB_APP_SECRET')}"
-    debug = rq.get(f"{GRAPH}/debug_token",
-                   params={"input_token": tok, "access_token": app_token},
-                   timeout=15).json()
-
-    return jsonify({
-        "me": q("me", fields="id,name"),
-        "scopes": q("me/permissions"),
-        "accounts": q("me/accounts", fields="id,name,tasks"),
-        "debug": debug
-    }), 200
 
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
 def logout():
@@ -777,19 +895,6 @@ def logout():
         return '', 204
     session.clear()
     return jsonify({'ok': True}), 200
-
-@app.get("/api/fb/import_debug")
-def fb_import_dbg():
-    info = {
-        "fb_import_error": str(fb_import_error) if fb_import_error else None,
-    }
-    try:
-        import api.fb_graph as m
-        info["module"] = str(m)
-        info["module_file"] = getattr(m, "__file__", None)
-    except Exception as e:
-        info["module_exc"] = str(e)
-    return jsonify(info), 200
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
