@@ -289,30 +289,13 @@ def fetch_async():
     return jsonify({'job_id': job.id}), 202
 
 # ── Job status & result ────────────────────────────────────────────────────────
-@app.route('/api/job_status/<job_id>', methods=['GET', 'OPTIONS'])
-def job_status(job_id):
+@app.route('/api/job/<job_id>', methods=['GET', 'OPTIONS'])
+def job_view(job_id):
     if request.method == 'OPTIONS':
         return '', 204
-    job = queue.fetch_job(job_id)
-    if not job:
-        return jsonify({'error': 'not_found'}), 404
-    return jsonify({'status': job.get_status()}), 200
-
-@app.route('/api/job_result/<job_id>', methods=['GET', 'OPTIONS'])
-def job_result(job_id):
-    if request.method == 'OPTIONS':
-        return '', 204
-    job = queue.fetch_job(job_id)
-    if not job:
-        return jsonify({'error': 'not_found'}), 404
-    if job.is_finished:
-        res = job.result
-        if isinstance(res, dict) and 'error' in res:
-            return jsonify(res), 400 if res['error'] in ('invalid_post_url', 'login_required') else 500
-        return jsonify({'participants': res}), 200
-    if job.is_failed:
-        return jsonify({'error': 'internal_error', 'detail': str(job.exc_info)}), 500
-    return jsonify({'status': job.get_status()}), 202
+    job, err = _get_job_or_404(job_id)
+    if err: return err
+    return _job_http_response(job)
 
 # ── Debug ──────────────────────────────────────────────────────────────────────
 @app.route('/api/debug_session', methods=['GET'])
@@ -632,7 +615,7 @@ def _filter_participants(
     started_at=None,
     ended_at=None,
     denylist=None,
-    unique_by="user",   # "user" | "comment" | "both"
+    unique_by="user",   # "user" | "comment" | "both" Якщо хочеш розігрувати за КОМЕНТАРЯМИ (кожен коментар — окремий квиток), викликай "unique_by": "comment"
 ):
     """
     unique_by:
@@ -751,9 +734,53 @@ def _normalize_participants(payload):
 def _pick_winners(users, k, seed_str):
     seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
     rnd = random.Random(seed)
-    pool = list(users)
+    # стабільна база перед тасуванням
+    pool = sorted(
+        users,
+        key=lambda r: (
+            (r.get("username") or "").strip().lower(),
+            (r.get("id") or "").strip()
+        )
+    )
     rnd.shuffle(pool)
     return pool[:k]
+
+def _get_job_or_404(job_id):
+    job = queue.fetch_job(job_id)
+    if not job:
+        return None, (jsonify({'error': 'not_found'}), 404)
+    return job, None
+
+def _job_http_response(job):
+    st = job.get_status()  # queued|started|deferred|finished|failed
+    if st == 'finished':
+        res = job.result
+        if isinstance(res, dict) and 'error' in res:
+            code = 400 if res['error'] in ('invalid_post_url', 'login_required') else 500
+            return jsonify(res), code
+        return jsonify({'participants': res, 'status': st}), 200
+    if st == 'failed':
+        # не світимо exc_info у проді
+        return jsonify({'error': 'internal_error', 'status': st}), 500
+    # queued/started/deferred
+    return jsonify({'status': st}), 202
+
+@app.route('/api/job_status/<job_id>', methods=['GET', 'OPTIONS'])
+def job_status(job_id):
+    if request.method == 'OPTIONS':
+        return '', 204
+    job, err = _get_job_or_404(job_id)
+    if err: return err
+    return jsonify({'status': job.get_status()}), 200
+
+@app.route('/api/job_result/<job_id>', methods=['GET', 'OPTIONS'])
+def job_result(job_id):
+    if request.method == 'OPTIONS':
+        return '', 204
+    job, err = _get_job_or_404(job_id)
+    if err: return err
+    return _job_http_response(job)
+
 
 # ── FB Graph endpoints ────────────────────────────────────────────────────────
 @app.get("/api/ig/accounts")
@@ -917,12 +944,103 @@ def ig_draw():
     winners = _pick_winners(rows, k, seed)
     return jsonify({"seed": seed, "winners": winners, "pool_size": len(rows)}), 200
 
+@app.post("/api/ig/run_draw")
+def ig_run_draw():
+    """
+    Тіло JSON:
+    {
+      "media_id": "18158777950388387",
+      "page_id":  "803175646215454",
+      "filter": {
+        "required_hashtags": [],
+        "min_mentions": 0,
+        "started_at": null,
+        "ended_at": null,
+        "denylist": [],
+        "unique_by": "user"   # user | comment | both
+      },
+      "winners": 1,
+      "seed": "giveaway-2025-11-24-<media_id>"  # якщо не передали — згенеруємо
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    media_id = (data.get("media_id") or "").strip()
+    page_id  = (data.get("page_id") or "").strip()
+    if not media_id:
+        return jsonify({"error":"validation_error","detail":"media_id required"}), 400
+
+    # 1) fetch all
+    err = _ensure_fb_ready()
+    if err: return jsonify(err[0]), err[1]
+    user_tok = _require_fb()
+    if not user_tok: return jsonify({"error":"login_required"}), 401
+
+    access_token = user_tok
+    if page_id:
+        acc = rq.get(f"{GRAPH}/{page_id}",
+                     params={"fields":"access_token","access_token":user_tok}, timeout=20).json()
+        access_token = acc.get("access_token") or user_tok
+
+    collected, after = [], None
+    while True:
+        r = ig_comments(media_id, access_token, limit=100, after=after)
+        items = [{
+            "id": (row.get("id") or "").strip(),
+            "username": (row.get("username") or ""),
+            "text": row.get("text") or "",
+            "timestamp": row.get("timestamp"),
+        } for row in (r.get("data") or [])]
+        collected.extend(items)
+        after = (((r.get("paging") or {}).get("cursors") or {}).get("after"))
+        if not after: break
+        time.sleep(0.2)
+
+    # 2) filter
+    f = (data.get("filter") or {})
+    filtered = _filter_participants(
+        collected,
+        required_hashtags=f.get("required_hashtags"),
+        min_mentions=int(f.get("min_mentions") or 0),
+        started_at=f.get("started_at"),
+        ended_at=f.get("ended_at"),
+        denylist=f.get("denylist"),
+        unique_by=(f.get("unique_by") or "user").lower(),
+    )
+
+    # 3) draw (детерміновано по seed)
+    winners_count = int(data.get("winners") or 1)
+    seed_str = data.get("seed") or f"giveaway-{int(time.time())}-{media_id}"
+    winners = _pick_winners(filtered, winners_count, seed_str)
+
+    # 4) audit/прозорість
+    audit = {
+        "media_id": media_id,
+        "page_id": page_id or None,
+        "fetched_count": len(collected),
+        "filtered_count": len(filtered),
+        "unique_by": (f.get("unique_by") or "user").lower(),
+        "seed": seed_str,
+        "required_hashtags": f.get("required_hashtags") or [],
+        "min_mentions": int(f.get("min_mentions") or 0),
+        "started_at": f.get("started_at"),
+        "ended_at": f.get("ended_at"),
+        "denylist": f.get("denylist") or [],
+        # щоб можна було перевірити результат — даємо хеш пулу
+        "pool_hash": hashlib.sha256(json.dumps(filtered, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
+    }
+
+    return jsonify({
+        "audit": audit,
+        "pool_size": len(filtered),
+        "winners": winners
+    }), 200
+
 @app.post("/api/ig/export_csv")
 def export_csv():
-    rows_raw = (request.get_json(silent=True) or {}).get("participants")
-    rows = _normalize_participants(rows_raw)
-
+    rows = (request.get_json(silent=True) or {}).get("participants") or []
     buf = io.StringIO()
+    # BOM для Excel
+    buf.write("\ufeff")
     w = csv.DictWriter(buf, fieldnames=["username","text","timestamp","id"])
     w.writeheader()
     for r in rows:
@@ -934,7 +1052,7 @@ def export_csv():
         })
     return Response(
         buf.getvalue(),
-        mimetype="text/csv",
+        mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition":"attachment; filename=participants.csv"}
     )
 
