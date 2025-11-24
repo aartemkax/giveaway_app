@@ -623,6 +623,84 @@ def fb_callback():
     except Exception as e:
         logger.exception("fb callback failed")
         return jsonify({"error": "oauth_failed", "detail": str(e)}), 400
+    
+# ── Utilities ─────────────────────────────────────────────
+def _filter_participants(rows, required_hashtags=None, min_mentions=0,
+                         started_at=None, ended_at=None, denylist=None):
+    required_hashtags = [h.lower() for h in (required_hashtags or [])]
+    denylist = set(denylist or [])
+    seen_users, out = set(), []
+    for r in rows:
+        usr = (r.get("username") or "").lower()
+        if usr in seen_users: continue
+        if usr in denylist: continue
+        txt = r.get("text") or ""
+        if required_hashtags and not any(h in txt.lower() for h in required_hashtags):
+            continue
+        mentions = len(re.findall(r"@\w+", txt))
+        if mentions < min_mentions: continue
+        ts = r.get("timestamp")
+        if started_at and ts and ts < started_at: continue
+        if ended_at and ts and ts > ended_at: continue
+        seen_users.add(usr)
+        out.append(r)
+    return out
+def _normalize_participants(payload):
+    """
+    Приймає різні варіанти структури з коментарями та повертає
+    плоский list[dict] коментарів.
+    Підтримує:
+    - { "participants": [...] }
+    - [ { "count": N, "participants": [...] } ]
+    - [ { "participants": [...] }, { "participants": [...] }, ... ]
+    - вже плоский список: [ {id, username, text, timestamp}, ... ]
+    - об’єкт з ключем "count" і "participants" на верхньому рівні
+    """
+    rows = payload if payload is not None else []
+
+    # Якщо це dict із "participants" на верхньому рівні
+    if isinstance(rows, dict):
+        if "participants" in rows and isinstance(rows["participants"], list):
+            rows = rows["participants"]
+        # інколи приходить {"count": N, "participants": [...]}
+        elif "count" in rows and "participants" in rows and isinstance(rows["participants"], list):
+            rows = rows["participants"]
+
+    # Якщо це одноелементний список із {"participants":[...]}
+    if (isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict)
+            and "participants" in rows[0] and isinstance(rows[0]["participants"], list)):
+        rows = rows[0]["participants"]
+
+    # Якщо це список елементів, кожен з яких має "participants" — розплющуємо
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict) and "participants" in rows[0]:
+        flat = []
+        for item in rows:
+            part = item.get("participants")
+            if isinstance(part, list):
+                flat.extend(part)
+        if flat:
+            rows = flat
+
+    # На виході гарантуємо список словників із мінімально потрібними ключами
+    norm = []
+    if isinstance(rows, list):
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            norm.append({
+                "id": r.get("id", ""),
+                "username": r.get("username", ""),
+                "text": r.get("text", ""),
+                "timestamp": r.get("timestamp", None),
+            })
+    return norm
+
+def _pick_winners(users, k, seed_str):
+    seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
+    rnd = random.Random(seed)
+    pool = list(users)
+    rnd.shuffle(pool)
+    return pool[:k]
 
 # ── FB Graph endpoints ────────────────────────────────────────────────────────
 @app.get("/api/ig/accounts")
@@ -761,31 +839,10 @@ def ig_comments_all():
         time.sleep(0.2)
     return jsonify({"participants": out, "count": len(out)}), 200
 
-def _filter_participants(rows, required_hashtags=None, min_mentions=0,
-                         started_at=None, ended_at=None, denylist=None):
-    required_hashtags = [h.lower() for h in (required_hashtags or [])]
-    denylist = set(denylist or [])
-    seen_users, out = set(), []
-    for r in rows:
-        usr = (r.get("username") or "").lower()
-        if usr in seen_users: continue
-        if usr in denylist: continue
-        txt = r.get("text") or ""
-        if required_hashtags and not any(h in txt.lower() for h in required_hashtags):
-            continue
-        mentions = len(re.findall(r"@\w+", txt))
-        if mentions < min_mentions: continue
-        ts = r.get("timestamp")
-        if started_at and ts and ts < started_at: continue
-        if ended_at and ts and ts > ended_at: continue
-        seen_users.add(usr)
-        out.append(r)
-    return out
-
 @app.post("/api/ig/comments_filter")
 def ig_comments_filter():
     data = request.get_json(silent=True) or {}
-    rows = data.get("participants") or []
+    rows = _normalize_participants(data.get("participants"))
     params = {
         "required_hashtags": data.get("required_hashtags"),
         "min_mentions": int(data.get("min_mentions") or 0),
@@ -796,29 +853,20 @@ def ig_comments_filter():
     clean = _filter_participants(rows, **params)
     return jsonify({"participants": clean, "count": len(clean)}), 200
 
-def _pick_winners(users, k, seed_str):
-    seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
-    rnd = random.Random(seed)
-    pool = list(users)
-    rnd.shuffle(pool)
-    return pool[:k]
-
 @app.post("/api/ig/draw")
 def ig_draw():
     data = request.get_json(silent=True) or {}
-    rows = data.get("participants") or []
+    rows = _normalize_participants(data.get("participants"))
     k = int(data.get("winners") or 1)
     seed = data.get("seed") or f"{time.time_ns()}"
     winners = _pick_winners(rows, k, seed)
-    return jsonify({
-        "seed": seed,
-        "winners": winners,
-        "pool_size": len(rows)
-    }), 200
+    return jsonify({"seed": seed, "winners": winners, "pool_size": len(rows)}), 200
 
 @app.post("/api/ig/export_csv")
 def export_csv():
-    rows = (request.get_json(silent=True) or {}).get("participants") or []
+    rows_raw = (request.get_json(silent=True) or {}).get("participants")
+    rows = _normalize_participants(rows_raw)
+
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=["username","text","timestamp","id"])
     w.writeheader()
@@ -829,9 +877,11 @@ def export_csv():
             "timestamp": r.get("timestamp",""),
             "id": r.get("id",""),
         })
-    return Response(buf.getvalue(),
-                    mimetype="text/csv",
-                    headers={"Content-Disposition":"attachment; filename=participants.csv"})
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition":"attachment; filename=participants.csv"}
+    )
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
