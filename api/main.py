@@ -1,4 +1,5 @@
 # api/main.py
+from datetime import timedelta
 import os
 import sys
 import json
@@ -63,6 +64,9 @@ app.config.update(
     SESSION_COOKIE_SAMESITE=os.getenv("SESSION_COOKIE_SAMESITE", "None"),
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true",
     SESSION_REDIS=Redis.from_url(redis_url, **_tls),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_PERMANENT=False,  # уникаємо довгоживучих сесій
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
 )
 Session(app)
 
@@ -654,7 +658,7 @@ def _filter_participants(
         if required_hashtags and not any(h in txt.lower() for h in required_hashtags):
             continue
 
-        mentions = len(re.findall(r"@\w+", txt))
+        mentions = len(re.findall(r'@[A-Za-z0-9_.]+', txt))
         if mentions < int(min_mentions or 0):
             continue
 
@@ -742,7 +746,12 @@ def _pick_winners(users, k, seed_str):
             (r.get("id") or "").strip()
         )
     )
+    k = max(0, min(k, len(pool)))
+    if k == 0:
+        return []
+    # детерміноване тасування з використанням seed
     rnd.shuffle(pool)
+    # Повертаємо перші k елементів у вигляді списку словників
     return pool[:k]
 
 def _get_job_or_404(job_id):
@@ -780,7 +789,6 @@ def job_result(job_id):
     job, err = _get_job_or_404(job_id)
     if err: return err
     return _job_http_response(job)
-
 
 # ── FB Graph endpoints ────────────────────────────────────────────────────────
 @app.get("/api/ig/accounts")
@@ -905,6 +913,7 @@ def ig_comments_all():
         access_token = acc.get("access_token") or user_tok
 
     out, after = [], None
+    max_pages = 2000
     while True:
         r = ig_comments(media_id, access_token, limit=100, after=after)
         items = [{
@@ -915,8 +924,14 @@ def ig_comments_all():
         } for row in (r.get("data") or [])]
         out.extend(items)
         after = (((r.get("paging") or {}).get("cursors") or {}).get("after"))
-        if not after: break
+        if not after:
+            break
+        max_pages -= 1
+        if max_pages <= 0:
+            logger.warning("ig_comments_all: reached max_pages limit")
+            break
         time.sleep(0.2)
+
     return jsonify({"participants": out, "count": len(out)}), 200
 
 @app.post("/api/ig/comments_filter")
