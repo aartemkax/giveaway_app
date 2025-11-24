@@ -625,26 +625,79 @@ def fb_callback():
         return jsonify({"error": "oauth_failed", "detail": str(e)}), 400
     
 # ── Utilities ─────────────────────────────────────────────
-def _filter_participants(rows, required_hashtags=None, min_mentions=0,
-                         started_at=None, ended_at=None, denylist=None):
-    required_hashtags = [h.lower() for h in (required_hashtags or [])]
-    denylist = set(denylist or [])
-    seen_users, out = set(), []
-    for r in rows:
-        usr = (r.get("username") or "").lower()
-        if usr in seen_users: continue
-        if usr in denylist: continue
+def _filter_participants(
+    rows,
+    required_hashtags=None,
+    min_mentions=0,
+    started_at=None,
+    ended_at=None,
+    denylist=None,
+    unique_by="user",   # "user" | "comment" | "both"
+):
+    """
+    unique_by:
+      - "user"    : один запис на одного користувача (де-дубль за username)
+      - "comment" : один запис на один коментар (де-дубль за id)
+      - "both"    : і за username, і за id
+    """
+    required_hashtags = [str(h or "").lower().strip() for h in (required_hashtags or []) if h]
+    # denylist робимо case-insensitive + trim
+    denylist = {str(u or "").lower().strip() for u in (denylist or []) if u}
+
+    seen_users = set()
+    seen_comments = set()
+    out = []
+
+    for r in rows or []:
+        # нормалізація полів
+        raw_username = r.get("username") or ""
+        norm_username = raw_username.strip().lower()
+        comment_id = (r.get("id") or "").strip()
+
+        # фільтр denylist
+        if norm_username in denylist:
+            continue
+
+        # унікальність
+        if unique_by in ("user", "both"):
+            if norm_username in seen_users:
+                continue
+        if unique_by in ("comment", "both"):
+            if comment_id and comment_id in seen_comments:
+                continue
+
+        # умови за текстом та @mentions
         txt = r.get("text") or ""
         if required_hashtags and not any(h in txt.lower() for h in required_hashtags):
             continue
+
         mentions = len(re.findall(r"@\w+", txt))
-        if mentions < min_mentions: continue
+        if mentions < int(min_mentions or 0):
+            continue
+
+        # фільтр за часом (ISO8601 рядки порівнюються лексикографічно коректно)
         ts = r.get("timestamp")
-        if started_at and ts and ts < started_at: continue
-        if ended_at and ts and ts > ended_at: continue
-        seen_users.add(usr)
-        out.append(r)
+        if started_at and ts and ts < started_at:
+            continue
+        if ended_at and ts and ts > ended_at:
+            continue
+
+        # пройшло — додаємо у результат, але повертаємо оригінальний username
+        out.append({
+            "id": comment_id,
+            "username": raw_username,  # не псуємо регістр/пробіли у відповіді
+            "text": txt,
+            "timestamp": ts,
+        })
+
+        # відмічаємо побачені
+        if norm_username:
+            seen_users.add(norm_username)
+        if comment_id:
+            seen_comments.add(comment_id)
+
     return out
+
 def _normalize_participants(payload):
     """
     Приймає різні варіанти структури з коментарями та повертає
@@ -842,15 +895,17 @@ def ig_comments_all():
 @app.post("/api/ig/comments_filter")
 def ig_comments_filter():
     data = request.get_json(silent=True) or {}
+
     rows = _normalize_participants(data.get("participants"))
-    params = {
-        "required_hashtags": data.get("required_hashtags"),
-        "min_mentions": int(data.get("min_mentions") or 0),
-        "started_at": data.get("started_at"),  # ISO8601 або None
-        "ended_at": data.get("ended_at"),
-        "denylist": data.get("denylist"),
-    }
-    clean = _filter_participants(rows, **params)
+    clean = _filter_participants(
+        rows,
+        required_hashtags=data.get("required_hashtags"),
+        min_mentions=int(data.get("min_mentions") or 0),
+        started_at=data.get("started_at"),
+        ended_at=data.get("ended_at"),
+        denylist=data.get("denylist"),
+        unique_by=(data.get("unique_by") or "user").lower(),  # <— новий параметр
+    )
     return jsonify({"participants": clean, "count": len(clean)}), 200
 
 @app.post("/api/ig/draw")
