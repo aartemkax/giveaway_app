@@ -1,3 +1,4 @@
+// lib/models/participant.dart
 import '../utils/constants.dart';
 
 class Participant {
@@ -8,10 +9,9 @@ class Participant {
 
   factory Participant.fromJson(Map<String, dynamic> json) {
     final relativeUrl = json['profile_pic_url'] as String;
-    final fullUrl =
-        relativeUrl.startsWith('http')
-            ? relativeUrl
-            : '$apiBaseUrl$relativeUrl';
+    final fullUrl = relativeUrl.startsWith('http')
+        ? relativeUrl
+        : '$apiBaseUrl$relativeUrl';
     return Participant(
       username: json['username'] as String,
       profilePicUrl: fullUrl,

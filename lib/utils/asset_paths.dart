@@ -1,3 +1,4 @@
+// lib/utils/asset_paths.dart
 class AssetPaths {
   static const String homeBackground = 'assets/images/bg_home.png';
   static const String loginBackground = 'assets/images/bg_login.png';

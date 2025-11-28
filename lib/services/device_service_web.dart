@@ -1,3 +1,4 @@
+// lib/services/device_service_web.dart
 import 'dart:convert';
 import 'dart:ui' show PlatformDispatcher;
 // ignore: avoid_web_libraries_in_flutter
