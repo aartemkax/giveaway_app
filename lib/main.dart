@@ -8,6 +8,7 @@ import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'screens/login/app_login_screen.dart';
 import 'screens/login/participants_screen.dart';
 import 'screens/password_login_screen.dart';
+import 'screens/login/fb_oauth_screen.dart';
 
 // --- Riverpod: провайдер локалі (простий StateProvider) ---
 final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
@@ -59,6 +60,7 @@ class MyApp extends ConsumerWidget {
             '/password_login': (ctx) => PasswordLoginScreen(
                 onLocaleChanged: (l) =>
                     ref.read(localeProvider.notifier).state = l),
+            '/fb_oauth': (ctx) => const FbOAuthScreen(), // ← додано
           },
         );
       },

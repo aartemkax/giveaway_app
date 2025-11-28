@@ -6,10 +6,7 @@ import 'package:giveaway_app/l10n/app_localizations.dart';
 import '../models/participant.dart';
 import '../utils/api_exception.dart';
 import '../widgets/participant_card.dart';
-
-// Потрібний імпорт для ParticipantsService
 import '../services/appapi/app_participants_service.dart';
-// Імпорт шляхів до ассетів
 import 'package:giveaway_app/utils/asset_paths.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,23 +22,22 @@ class _HomeScreenState extends State<HomeScreen> {
   );
   final _countCtrl = TextEditingController(text: '1');
 
-  // Створюємо сервіс
   final _participantsService = ParticipantsService();
 
   List<Participant> _winners = [];
   bool _loading = false;
 
   Future<void> _refreshAndChoose() async {
-    // Беремо локалізації один раз на початку (уникаємо use_build_context_synchronously)
+    // Фіксуємо контекст і локалізації на старті
     final ctx = context;
     final loc = AppLocalizations.of(ctx)!;
 
     setState(() => _loading = true);
 
-    // 1) Перевіряємо, щоб вводили ≥ 1
+    // 1) Валідація кількості переможців
     final n = int.tryParse(_countCtrl.text.trim()) ?? 0;
     if (n < 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(ctx).showSnackBar(
         SnackBar(content: Text(loc.error_invalid_winner_count)),
       );
       setState(() => _loading = false);
@@ -49,16 +45,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
-      // 2) Тягнемо учасників з бекенду
+      // 2) Тягаємо учасників з бекенду
       final unique = (await _participantsService.fetchParticipants(
         _urlCtrl.text.trim(),
-        context: context,
+        context: ctx, // використовуємо збережений ctx
       ))
           .toSet()
           .toList();
 
-      final rnd = Random();
-      unique.shuffle(rnd);
+      unique.shuffle(Random());
 
       if (!mounted) return;
       setState(() {
@@ -66,8 +61,9 @@ class _HomeScreenState extends State<HomeScreen> {
         _winners = unique.take(take).toList();
       });
     } on ApiException catch (e) {
-      String message;
+      if (!mounted) return;
 
+      String message;
       switch (e.code) {
         case 'invalid_post_url':
           message = loc.error_invalid_post_url;
@@ -81,44 +77,31 @@ class _HomeScreenState extends State<HomeScreen> {
         case 'proxy_blocked':
           message = loc.error_proxy_blocked;
           break;
-
         case 'login_required':
-          // спеціальна гілка для detail=session_expired
           if (e.detail == 'session_expired') {
             message = loc.error_session_expired;
-            if (mounted) {
-              // опційно: одразу перекинути на логін
-              Future.microtask(
-                () => Navigator.of(context).pushReplacementNamed('/login'),
-              );
-            }
+            Future.microtask(
+                () => Navigator.of(ctx).pushReplacementNamed('/login'));
           } else {
             message = loc.error_login_required;
           }
           break;
-
         case 'invalid_credentials':
           message = loc.error_invalid_credentials;
           break;
         case 'internal_error':
           message = loc.error_internal_error;
           break;
-
         default:
           message = loc.error_generic(e.code);
       }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
-      }
+      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(message)));
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(loc.error_internal_error)),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(content: Text(loc.error_internal_error)),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -130,8 +113,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(loc.home_title),
-        // якщо хочеш напівпрозору шапку на фоні:
-        // backgroundColor: Colors.black.withOpacity(0.4),
         centerTitle: true,
         elevation: 0,
       ),

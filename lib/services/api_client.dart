@@ -13,23 +13,35 @@ class ApiClient {
 
   late final Dio dio = _build();
 
+  // ← тримаємо інстанс, щоб можна було чистити кукі
+  CookieJar? _cookieJar;
+
   Dio _build() {
     final baseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
     if (baseUrl.isEmpty) {
       throw StateError('API_BASE_URL is not set in .env');
     }
+
     final d = Dio(BaseOptions(
       baseUrl: baseUrl,
       validateStatus: (s) => s != null && s < 600,
       headers: {'Accept': 'application/json'},
     ));
+
+    _cookieJar = CookieJar();
+
     if (kIsWeb) {
       final adapter = BrowserHttpClientAdapter()..withCredentials = true;
       d.httpClientAdapter = adapter;
-      d.interceptors.add(CookieManager(CookieJar())); // тільки пам’ять
+      d.interceptors.add(CookieManager(_cookieJar!)); // пам’ять
     } else {
-      d.interceptors.add(CookieManager(CookieJar()));
+      d.interceptors.add(CookieManager(_cookieJar!));
     }
     return d;
+  }
+
+  // ← новий метод, який викликаєш у logout
+  Future<void> clearCookies() async {
+    await _cookieJar?.deleteAll();
   }
 }

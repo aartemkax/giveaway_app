@@ -4,18 +4,42 @@ import 'package:dio/dio.dart';
 class ApiException implements Exception {
   final String code;
   final String? detail;
-  ApiException(this.code, {this.detail});
+
+  // ← додано
+  final int? status;
+  final int? retryAfterSec;
+  final int? active;
+  final int? limit;
+
+  ApiException(
+    this.code, {
+    this.detail,
+    this.status,
+    this.retryAfterSec,
+    this.active,
+    this.limit,
+  });
 
   @override
-  String toString() =>
-      'ApiException($code${detail != null ? ": $detail" : ""})';
+  String toString() {
+    final extras = <String, Object?>{
+      if (status != null) 'status': status,
+      if (retryAfterSec != null) 'retry': retryAfterSec,
+      if (active != null) 'active': active,
+      if (limit != null) 'limit': limit,
+      if (detail != null) 'detail': detail,
+    };
+    return 'ApiException($code${extras.isEmpty ? '' : ' $extras'})';
+  }
 
   static ApiException fromDio(DioException e) {
     final r = e.response;
     String code = 'network_error';
     String? detail;
+    int? status;
 
     if (r != null) {
+      status = r.statusCode;
       code = 'server_error';
       try {
         final data = r.data;
@@ -26,23 +50,25 @@ class ApiException implements Exception {
           detail = data;
         }
       } catch (_) {}
-      // мапінг типових кодів з бекенда
-      if (r.statusCode == 401 && code == 'invalid_credentials') {
-        return ApiException('invalid_credentials', detail: detail);
+
+      if (status == 401 && code == 'invalid_credentials') {
+        return ApiException('invalid_credentials',
+            detail: detail, status: status);
       }
-      if (r.statusCode == 401 && code == 'login_required') {
-        return ApiException('login_required', detail: detail);
+      if (status == 401 && code == 'login_required') {
+        return ApiException('login_required', detail: detail, status: status);
       }
-      if (r.statusCode == 412 && code == 'instagram_challenge') {
-        return ApiException('instagram_challenge', detail: detail);
+      if (status == 412 && code == 'instagram_challenge') {
+        return ApiException('instagram_challenge',
+            detail: detail, status: status);
       }
-      if (r.statusCode == 403 && code == 'suspicious_login') {
-        return ApiException('suspicious_login', detail: detail);
+      if (status == 403 && code == 'suspicious_login') {
+        return ApiException('suspicious_login', detail: detail, status: status);
       }
-      return ApiException(code, detail: detail ?? 'HTTP ${r.statusCode}');
+      return ApiException(code,
+          detail: detail ?? 'HTTP $status', status: status);
     }
 
-    // без response
     return ApiException('network_error', detail: e.message);
   }
 }

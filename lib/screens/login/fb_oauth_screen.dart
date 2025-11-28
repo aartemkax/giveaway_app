@@ -1,58 +1,44 @@
-// lib/screens/login/fb_oauth_screen.dart
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:giveaway_app/services/fb/fb_auth_service.dart';
-import 'package:giveaway_app/utils/api_exception.dart';
+import 'package:giveaway_app/services/api_client.dart';
 
 class FbOAuthScreen extends StatefulWidget {
   const FbOAuthScreen({super.key});
-
   @override
   State<FbOAuthScreen> createState() => _FbOAuthScreenState();
 }
 
 class _FbOAuthScreenState extends State<FbOAuthScreen> {
-  bool _loading = false;
-  String? _lastError;
+  bool _loading = true;
+  String? _error;
 
-  Future<void> _startFbLogin() async {
-    setState(() {
-      _loading = true;
-      _lastError = null;
-    });
-    try {
-      final url = await FbAuthService().getLoginUrl();
-      final ok =
-          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      if (!ok) {
-        setState(() => _lastError = 'Не вдалося відкрити браузер');
-      }
-    } on ApiException catch (e) {
-      setState(() => _lastError = e.detail ?? e.code);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+  @override
+  void initState() {
+    super.initState();
+    _start();
   }
 
-  Future<void> _checkStatus() async {
-    setState(() {
-      _loading = true;
-      _lastError = null;
-    });
+  Future<void> _start() async {
     try {
-      final me = await FbAuthService()
-          .whoAmI(); // { ok:true, name:..., id:... } — як зробиш на беку
-      if (!mounted) return;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('auth_method', 'fb');
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/participants');
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() => _lastError =
-          e.detail ?? 'Потрібно завершити вхід у браузері та повернутися');
+      final dio = ApiClient().dio;
+      final r = await dio.get('/api/ig/login_url');
+      if (r.statusCode == 200 &&
+          r.data is Map &&
+          r.data['login_url'] is String) {
+        final url = Uri.parse(r.data['login_url'] as String);
+        final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
+        if (!ok) {
+          setState(() {
+            _error = 'Не вдалося відкрити браузер для авторизації.';
+            _loading = false;
+          });
+          return;
+        }
+      } else {
+        setState(() => _error = 'Сервер не повернув login_url.');
+      }
+    } catch (e) {
+      setState(() => _error = 'Помилка: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -62,46 +48,22 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Facebook OAuth')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const Text(
-              'Крок 1. Відкрий вхід у Facebook/Instagram Graph у браузері та авторизуйся.',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _loading ? null : _startFbLogin,
-                child: _loading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Увійти через Facebook (офіційно)'),
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Крок 2. Повернись в апку і натисни "Перевірити статус".',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: _loading ? null : _checkStatus,
-                child: const Text('Перевірити статус'),
-              ),
-            ),
-            if (_lastError != null) ...[
-              const SizedBox(height: 12),
-              Text(_lastError!, style: const TextStyle(color: Colors.red)),
-            ],
-          ],
-        ),
+      body: Center(
+        child: _loading
+            ? const CircularProgressIndicator()
+            : _error != null
+                ? Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(_error!, textAlign: TextAlign.center),
+                  )
+                : const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Після успішного логіну через браузер поверніться в додаток.\n'
+                      'Сесію збережено у кукі, можна переходити до вибору переможця.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
       ),
     );
   }

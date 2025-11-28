@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:ui' show PlatformDispatcher;
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
-
+// ignore_for_file: deprecated_member_use
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:http/http.dart' as http;
 import 'package:giveaway_app/utils/constants.dart';

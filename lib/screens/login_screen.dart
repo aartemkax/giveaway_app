@@ -1,11 +1,12 @@
-// lib/screens/login/app_login_screen.dart
+// lib/screens/login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
-import 'package:giveaway_app/screens/login/instagram_login_webview.dart';
-import 'package:giveaway_app/screens/login/fb_oauth_screen.dart'; // залишаємо, якщо використовуєш pushNamed — можна й прибрати
+import 'package:giveaway_app/screens/instagram_login_webview.dart';
+import 'package:giveaway_app/services/api_client.dart'; // ⬅️ потрібен для /api/debug_session
+import 'package:giveaway_app/services/device_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
@@ -18,24 +19,58 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
 
-  Future<void> _openInstagramWebLogin() async {
+  Future<bool> _ensureBackendSession() async {
+    try {
+      final r = await ApiClient().dio.get('/api/debug_session');
+      final data = r.data;
+      if (data is Map) {
+        return data['ig_settings_present'] == true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Future<void> _openInstagramWebLogin({bool retryIfNoSession = true}) async {
     if (_loading) return;
     setState(() => _loading = true);
 
+    // 👉 1) Прогріваємо девайс на бекенді (emu_cache в сесії)
+    try {
+      final raw = await DeviceService().collectFingerprint();
+      await DeviceService().emulateOnServer(raw);
+    } catch (_) {
+      // не блокуємо логін, якщо прогрів не вдався
+    }
+
+    // 👉 2) Відкриваємо Instagram WebView
     final ok = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const InstagramLoginWebView()),
     );
 
-    if (!mounted) return;
-    setState(() => _loading = false);
+    if (!mounted) {
+      return;
+    }
 
     if (ok == true) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('auth_method', 'custom');
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/participants');
+      final hasSession = await _ensureBackendSession();
+      if (hasSession) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isLoggedIn', true);
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed('/participants');
+      } else if (retryIfNoSession) {
+        setState(() => _loading = false);
+        await _openInstagramWebLogin(retryIfNoSession: false);
+        return;
+      } else {
+        final loc = AppLocalizations.of(context)!;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(loc.error_internal_error)),
+        );
+      }
     }
+
+    if (mounted) setState(() => _loading = false);
   }
 
   @override
@@ -82,53 +117,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ),
-
                 const Spacer(),
-
-                // 1) Офіційний API FB
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _loading
-                        ? null
-                        : () {
-                            Navigator.of(context).pushNamed('/fb_oauth');
-                          },
+                    onPressed: _loading ? null : _openInstagramWebLogin,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
-                    ),
-                    child: const Text(
-                      'Обрати переможця (офіційний API Facebook)',
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Підходить для публічних сторінок/постів',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-
-                const SizedBox(height: 16),
-
-                // 2) Для приватних сторінок — наш кастомний вхід
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Для приватних сторінок',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w600),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: _loading ? null : _openInstagramWebLogin,
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      side: const BorderSide(color: Colors.white70),
-                      foregroundColor: Colors.white,
                     ),
                     child: _loading
                         ? const SizedBox(
@@ -139,11 +134,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         : Text(loc.open_instagram_button),
                   ),
                 ),
-
-                const SizedBox(height: 8),
-
-                // якщо ще потрібен парольний — використовуй pushNamed('/password_login')
-
                 const Spacer(flex: 2),
               ],
             ),

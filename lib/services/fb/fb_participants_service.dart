@@ -1,6 +1,4 @@
-// lib/services/fb/fb_participants_service.dart
 import 'package:dio/dio.dart';
-
 import '../../models/participant.dart';
 import '../api_client.dart';
 import '../../utils/api_exception.dart';
@@ -8,13 +6,9 @@ import '../../utils/api_exception.dart';
 class FbParticipantsService {
   final Dio _dio;
 
-  // Використання спільного клієнта за замовчуванням
   FbParticipantsService() : _dio = ApiClient().dio;
-
-  // Або DI через провайдер
   FbParticipantsService.withDio(this._dio);
 
-  /// Отримати всіх учасників (коментарі) через офіційний Graph бекенду
   Future<List<Participant>> fetchCommentsAll({
     required String mediaId,
     required String pageId,
@@ -22,10 +16,7 @@ class FbParticipantsService {
     try {
       final r = await _dio.get(
         '/api/ig/comments_all',
-        queryParameters: {
-          'media_id': mediaId,
-          'page_id': pageId,
-        },
+        queryParameters: {'media_id': mediaId, 'page_id': pageId},
       );
 
       if (r.statusCode == 200 && r.data is Map) {
@@ -35,14 +26,13 @@ class FbParticipantsService {
           return raw
               .whereType<Map>()
               .map((e) => Participant.fromJson(
-                    Map<String, dynamic>.from(e as Map),
+                    Map<String, dynamic>.from(e),
                   ))
               .toList();
         }
         return <Participant>[];
       }
 
-      // Якщо бек повернув JSON-помилку — спробуємо вичитати поля
       if (r.data is Map) {
         final m = r.data as Map;
         final code = (m['error'] as String?) ?? 'server_error';
@@ -56,7 +46,6 @@ class FbParticipantsService {
     }
   }
 
-  /// Запустити жереб через офіційний Graph бекенду
   Future<Map<String, dynamic>> runDraw({
     required String mediaId,
     required String pageId,
