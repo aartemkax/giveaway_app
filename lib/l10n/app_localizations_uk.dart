@@ -103,5 +103,5 @@ class AppLocalizationsUk extends AppLocalizations {
       'Instagram вимагає додати номер телефону. Відкрийте Instagram, щоб продовжити.';
 
   @override
-  String get open_instagram_button => 'Відкрити Instagram';
+  String get open_instagram_button => 'Відкрити Instagramь';
 }
