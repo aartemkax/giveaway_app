@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/api_exception.dart';
-import 'package:giveaway_app/services/auth_service.dart';
+import 'package:giveaway_app/services/appapi/app_auth_service.dart';
 import 'package:giveaway_app/services/device_service.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
 

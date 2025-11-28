@@ -8,7 +8,7 @@ import '../utils/api_exception.dart';
 import '../widgets/participant_card.dart';
 
 // Потрібний імпорт для ParticipantsService
-import '../services/participants_service.dart';
+import '../services/appapi/app_participants_service.dart';
 // Імпорт шляхів до ассетів
 import 'package:giveaway_app/utils/asset_paths.dart';
 

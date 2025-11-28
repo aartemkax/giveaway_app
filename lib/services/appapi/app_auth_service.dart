@@ -1,12 +1,14 @@
-// lib/services/auth_service.dart
+// lib/services/appapi/app_auth_service.dart
 import 'package:dio/dio.dart';
 import 'package:giveaway_app/services/api_client.dart';
-import '../utils/api_exception.dart';
+import '../../utils/api_exception.dart';
 
 class AuthService {
-  final Dio _dio = ApiClient().dio;
+  final Dio _dio;
 
-  /// Логін паролем. deviceInfo — опційно (передавай емуляцію з бекенду, якщо є).
+  AuthService() : _dio = ApiClient().dio; // старий шлях — не ламаємо
+  AuthService.withDio(this._dio); // новий шлях через провайдер
+
   Future<void> login(
     String username,
     String password, {
@@ -21,25 +23,20 @@ class AuthService {
           'deviceInfo': deviceInfo ?? {},
         },
       );
-      // Flask-session cookie збереже CookieManager з ApiClient.
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
     }
   }
 
-  /// Логін по sessionid з Instagram (fallback через веб-логін).
   Future<void> loginBySessionId(String sessionId) async {
     try {
-      await _dio.post(
-        '/api/login_by_sessionid',
-        data: {'sessionid': sessionId},
-      );
+      await _dio
+          .post('/api/login_by_sessionid', data: {'sessionid': sessionId});
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
     }
   }
 
-  /// Допоміжне: глянути стан серверної сесії.
   Future<Map<String, dynamic>> debugSession() async {
     try {
       final r = await _dio.get('/api/debug_session');

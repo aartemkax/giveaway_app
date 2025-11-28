@@ -1,15 +1,20 @@
 // lib/services/device_service.dart
+import 'dart:async';
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:device_info_plus/device_info_plus.dart';
-import 'dart:ui' show PlatformDispatcher;
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'dart:html' as html;
 
-import 'package:giveaway_app/utils/constants.dart'; // ← ДОДАЙ
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/widgets.dart' show WidgetsBinding;
+
+import 'package:giveaway_app/services/api_client.dart';
+import 'package:giveaway_app/utils/constants.dart';
+export 'device_service_io.dart'
+    if (dart.library.html) 'device_service_web.dart';
 
 class DeviceService {
+  final Dio _dio = ApiClient().dio;
+
   Future<Map<String, dynamic>> collectFingerprint() async {
     final info = <String, dynamic>{};
     final di = DeviceInfoPlugin();
@@ -23,8 +28,8 @@ class DeviceService {
         'manufacturer': web.vendor ?? 'Browser',
         'model': web.product ?? 'Browser',
         'cpu': '',
-        'userAgent': html.window.navigator.userAgent,
-        'platform': html.window.navigator.platform,
+        'userAgent': web.userAgent ?? '',
+        'platform': 'Web',
       });
     } else if (Platform.isAndroid) {
       final a = await di.androidInfo;
@@ -40,9 +45,10 @@ class DeviceService {
       });
     } else if (Platform.isIOS) {
       final i = await di.iosInfo;
+      final major = int.tryParse(i.systemVersion.split('.').first) ?? 0;
       info.addAll({
         'appVersion': i.systemVersion,
-        'androidVersion': int.parse(i.systemVersion.split('.').first),
+        'androidVersion': major,
         'androidRelease': i.systemVersion,
         'manufacturer': 'Apple',
         'model': i.utsname.machine,
@@ -50,32 +56,53 @@ class DeviceService {
         'userAgent': '',
         'platform': 'iOS',
       });
+    } else {
+      info.addAll({
+        'appVersion': '',
+        'androidVersion': 0,
+        'androidRelease': '',
+        'manufacturer': 'Unknown',
+        'model': 'Unknown',
+        'cpu': '',
+        'userAgent': '',
+        'platform': 'Other',
+      });
     }
 
-    final pd = PlatformDispatcher.instance;
-    final view = pd.views.first;
-    final dp = view.devicePixelRatio;
-    final size = view.physicalSize;
-    info['screen'] = {
-      'width': size.width / dp,
-      'height': size.height / dp,
-      'pixelRatio': dp,
-    };
-    info['locale'] = pd.locale.toLanguageTag();
+    final binding = WidgetsBinding.instance;
+    final views = binding.platformDispatcher.views;
+    if (views.isNotEmpty) {
+      final view = views.first;
+      final dp = view.devicePixelRatio;
+      final size = view.physicalSize;
+      info['screen'] = {
+        'width': size.width / dp,
+        'height': size.height / dp,
+        'pixelRatio': dp,
+      };
+    } else {
+      info['screen'] = {'width': 0, 'height': 0, 'pixelRatio': 1.0};
+    }
+
+    final locale = binding.platformDispatcher.locale;
+    info['locale'] = locale.toLanguageTag();
     info['timezoneOffset'] = DateTime.now().timeZoneOffset.inMinutes;
 
-    // GEO по IP — тепер через constants
-    final r1 = await http.post(
-      collectGeoUri, // ← ось тут
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'deviceInfo': info}),
-    );
-    if (r1.statusCode == 200) {
-      final body = jsonDecode(r1.body) as Map<String, dynamic>;
-      final geo = body['geo'] as Map<String, dynamic>? ?? {};
-      info['geo'] = geo;
-      info['country_iso'] =
-          (geo['country_code'] ?? '').toString().toUpperCase();
+    try {
+      final r1 = await _dio.postUri(
+        collectGeoUri,
+        data: {'deviceInfo': info},
+        options: Options(headers: {'Content-Type': 'application/json'}),
+      );
+      if (r1.statusCode == 200 && r1.data is Map) {
+        final body = r1.data as Map;
+        final geo = (body['geo'] as Map?)?.cast<String, dynamic>() ?? {};
+        info['geo'] = geo;
+        info['country_iso'] =
+            (geo['country_code'] ?? '').toString().toUpperCase();
+      }
+    } catch (_) {
+      // GEO опційний — ігноруємо
     }
 
     return info;
@@ -83,11 +110,14 @@ class DeviceService {
 
   Future<Map<String, dynamic>> emulateOnServer(
       Map<String, dynamic> info) async {
-    final r2 = await http.post(
-      deviceReportUri, // ← і тут
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'deviceInfo': info}),
+    final r2 = await _dio.postUri(
+      deviceReportUri,
+      data: {'deviceInfo': info},
+      options: Options(headers: {'Content-Type': 'application/json'}),
     );
-    return jsonDecode(r2.body) as Map<String, dynamic>;
+    if (r2.statusCode == 200 && r2.data is Map) {
+      return (r2.data as Map).cast<String, dynamic>();
+    }
+    throw Exception('device_report failed: ${r2.statusCode}');
   }
 }

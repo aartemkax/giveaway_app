@@ -1,55 +1,66 @@
 // lib/main.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'package:giveaway_app/l10n/app_localizations.dart';
-import 'screens/login_screen.dart';
-import 'screens/participants_screen.dart';
-import 'package:giveaway_app/services/api_client.dart';
+import 'screens/login/app_login_screen.dart';
+import 'screens/login/participants_screen.dart';
 import 'screens/password_login_screen.dart';
+
+// --- Riverpod: провайдер локалі (простий StateProvider) ---
+final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
+
+// --- Riverpod: провайдер початкового роута (FutureProvider) ---
+final initialRouteProvider = FutureProvider<String>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+  return isLoggedIn ? '/participants' : '/login';
+});
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
 
-  // важливо: підключити PersistCookieJar до Dio
-  //await ApiClient().initCookies();
-
-  final prefs = await SharedPreferences.getInstance();
-  final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-
-  runApp(MyApp(initialRoute: isLoggedIn ? '/participants' : '/login'));
+  runApp(const ProviderScope(child: MyApp()));
 }
 
-class MyApp extends StatefulWidget {
-  final String initialRoute;
-  const MyApp({required this.initialRoute, super.key});
+class MyApp extends ConsumerWidget {
+  const MyApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final locState = ref.watch(localeProvider);
+    final initialRouteAsync = ref.watch(initialRouteProvider);
 
-class _MyAppState extends State<MyApp> {
-  Locale _locale = const Locale('uk');
-
-  void _switchLocale(Locale locale) => setState(() => _locale = locale);
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      locale: _locale,
-      supportedLocales: AppLocalizations.supportedLocales,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      onGenerateTitle: (context) => AppLocalizations.of(context)!.app_name,
-      initialRoute: widget.initialRoute,
-      routes: {
-        '/': (ctx) => LoginScreen(onLocaleChanged: _switchLocale),
-        '/login': (ctx) => LoginScreen(onLocaleChanged: _switchLocale),
-        '/participants': (ctx) =>
-            ParticipantsScreen(onLocaleChanged: _switchLocale),
-        '/password_login': (ctx) =>
-            PasswordLoginScreen(onLocaleChanged: _switchLocale),
+    return initialRouteAsync.when(
+      loading: () => const MaterialApp(
+          home: Scaffold(body: Center(child: CircularProgressIndicator()))),
+      error: (e, _) => MaterialApp(
+          home: Scaffold(body: Center(child: Text('Init error: $e')))),
+      data: (initialRoute) {
+        return MaterialApp(
+          locale: locState,
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          onGenerateTitle: (context) => AppLocalizations.of(context)!.app_name,
+          initialRoute: initialRoute,
+          routes: {
+            '/': (ctx) => LoginScreen(
+                onLocaleChanged: (l) =>
+                    ref.read(localeProvider.notifier).state = l),
+            '/login': (ctx) => LoginScreen(
+                onLocaleChanged: (l) =>
+                    ref.read(localeProvider.notifier).state = l),
+            '/participants': (ctx) => ParticipantsScreen(
+                onLocaleChanged: (l) =>
+                    ref.read(localeProvider.notifier).state = l),
+            '/password_login': (ctx) => PasswordLoginScreen(
+                onLocaleChanged: (l) =>
+                    ref.read(localeProvider.notifier).state = l),
+          },
+        );
       },
     );
   }

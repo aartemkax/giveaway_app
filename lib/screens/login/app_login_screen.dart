@@ -1,11 +1,11 @@
-// lib/screens/login_screen.dart
+// lib/screens/login/app_login_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
-import 'package:giveaway_app/screens/instagram_login_webview.dart';
+import 'package:giveaway_app/screens/login/instagram_login_webview.dart';
 import 'package:giveaway_app/screens/password_login_screen.dart'; // запасний спосіб
 
 class LoginScreen extends StatefulWidget {

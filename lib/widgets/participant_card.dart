@@ -1,7 +1,7 @@
+// lib/widgets/participant_card.dart
 import 'package:flutter/material.dart';
 import '../models/participant.dart';
 import '../utils/constants.dart';
-import 'package:lottie/lottie.dart';
 
 class ParticipantCard extends StatelessWidget {
   final Participant participant;
