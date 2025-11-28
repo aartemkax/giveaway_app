@@ -1,21 +1,19 @@
-// lib/screens/login/app_login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
 import 'package:giveaway_app/screens/login/instagram_login_webview.dart';
-import 'package:giveaway_app/screens/login/fb_oauth_screen.dart'; // залишаємо, якщо використовуєш pushNamed — можна й прибрати
 
-class LoginScreen extends StatefulWidget {
+class AppLoginScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
-  const LoginScreen({required this.onLocaleChanged, super.key});
+  const AppLoginScreen({required this.onLocaleChanged, super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<AppLoginScreen> createState() => _AppLoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _AppLoginScreenState extends State<AppLoginScreen> {
   bool _loading = false;
 
   Future<void> _openInstagramWebLogin() async {
@@ -85,7 +83,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const Spacer(),
 
-                // 1) Офіційний API FB
+                // 1) Офіційний API FB (через окремий екран /fb_oauth)
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -111,7 +109,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 16),
 
-                // 2) Для приватних сторінок — наш кастомний вхід
+                // 2) Для приватних сторінок — кастомний вхід
                 const Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -139,10 +137,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         : Text(loc.open_instagram_button),
                   ),
                 ),
-
-                const SizedBox(height: 8),
-
-                // якщо ще потрібен парольний — використовуй pushNamed('/password_login')
 
                 const Spacer(flex: 2),
               ],
