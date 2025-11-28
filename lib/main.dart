@@ -1,18 +1,17 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
-import 'screens/login/app_login_screen.dart';
-import 'screens/participants_screen.dart'; // ← виправлено шлях
+import 'screens/login/app_login_screen.dart'; // <-- клас AppLoginScreen
+import 'screens/login/participants_screen.dart';
 import 'screens/password_login_screen.dart';
 import 'screens/login/fb_oauth_screen.dart';
 
-// Riverpod: провайдер локалі
 final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
 
-// Riverpod: провайдер початкового роута
 final initialRouteProvider = FutureProvider<String>((ref) async {
   final prefs = await SharedPreferences.getInstance();
   final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
@@ -41,28 +40,44 @@ class MyApp extends ConsumerWidget {
         home: Scaffold(body: Center(child: Text('Init error: $e'))),
       ),
       data: (initialRoute) {
+        final start =
+            (initialRoute == '/participants' || initialRoute == '/login')
+                ? initialRoute
+                : '/login';
+
         return MaterialApp(
-          debugShowCheckedModeBanner: false,
+          title: 'Giveaway App', // <-- фікс: безпечний заголовок
           locale: locState,
           supportedLocales: AppLocalizations.supportedLocales,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
-          onGenerateTitle: (context) => AppLocalizations.of(context)!.app_name,
-          initialRoute: initialRoute,
+          initialRoute: start,
           routes: {
             '/': (ctx) => AppLoginScreen(
-                onLocaleChanged: (l) =>
-                    ref.read(localeProvider.notifier).state = l),
+                  // <-- якщо у тебе клас LoginScreen, заміни тут
+                  onLocaleChanged: (l) =>
+                      ref.read(localeProvider.notifier).state = l,
+                ),
             '/login': (ctx) => AppLoginScreen(
-                onLocaleChanged: (l) =>
-                    ref.read(localeProvider.notifier).state = l),
+                  onLocaleChanged: (l) =>
+                      ref.read(localeProvider.notifier).state = l,
+                ),
             '/participants': (ctx) => ParticipantsScreen(
-                onLocaleChanged: (l) =>
-                    ref.read(localeProvider.notifier).state = l),
+                  onLocaleChanged: (l) =>
+                      ref.read(localeProvider.notifier).state = l,
+                ),
             '/password_login': (ctx) => PasswordLoginScreen(
-                onLocaleChanged: (l) =>
-                    ref.read(localeProvider.notifier).state = l),
+                  onLocaleChanged: (l) =>
+                      ref.read(localeProvider.notifier).state = l,
+                ),
             '/fb_oauth': (ctx) => const FbOAuthScreen(),
           },
+          onUnknownRoute: (settings) => MaterialPageRoute(
+            builder: (_) => AppLoginScreen(
+              onLocaleChanged: (l) =>
+                  ref.read(localeProvider.notifier).state = l,
+            ),
+            settings: const RouteSettings(name: '/login'),
+          ),
         );
       },
     );

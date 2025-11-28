@@ -25,7 +25,7 @@ dependencies:
   flutter_inappwebview: ^6.0.0
   path_provider: ^2.1.4
   flutter_riverpod: ^2.6.1
-  web: ^1.0.0
+  # !!! ВАЖЛИВО: НЕ додавати 'web' тут
 
 dev_dependencies:
   flutter_test:
