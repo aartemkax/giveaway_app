@@ -5,17 +5,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
-import 'screens/login/app_login_screen.dart'; // <-- клас AppLoginScreen
+import 'screens/login/app_login_screen.dart'; // якщо клас у тебе LoginScreen — заміни назву нижче
 import 'screens/login/participants_screen.dart';
 import 'screens/password_login_screen.dart';
 import 'screens/login/fb_oauth_screen.dart';
 
 final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
 
-final initialRouteProvider = FutureProvider<String>((ref) async {
+final initialRouteProvider = FutureProvider<bool>((ref) async {
   final prefs = await SharedPreferences.getInstance();
-  final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-  return isLoggedIn ? '/participants' : '/login';
+  return prefs.getBool('isLoggedIn') ?? false;
 });
 
 Future<void> main() async {
@@ -30,33 +29,33 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final locState = ref.watch(localeProvider);
-    final initialRouteAsync = ref.watch(initialRouteProvider);
+    final isLoggedInAsync = ref.watch(initialRouteProvider);
 
-    return initialRouteAsync.when(
+    return isLoggedInAsync.when(
       loading: () => const MaterialApp(
         home: Scaffold(body: Center(child: CircularProgressIndicator())),
       ),
       error: (e, _) => MaterialApp(
         home: Scaffold(body: Center(child: Text('Init error: $e'))),
       ),
-      data: (initialRoute) {
-        final start =
-            (initialRoute == '/participants' || initialRoute == '/login')
-                ? initialRoute
-                : '/login';
+      data: (isLoggedIn) {
+        final home = isLoggedIn
+            ? ParticipantsScreen(
+                onLocaleChanged: (l) =>
+                    ref.read(localeProvider.notifier).state = l,
+              )
+            : AppLoginScreen(
+                onLocaleChanged: (l) =>
+                    ref.read(localeProvider.notifier).state = l,
+              );
 
         return MaterialApp(
-          title: 'Giveaway App', // <-- фікс: безпечний заголовок
+          title: 'Giveaway App',
           locale: locState,
           supportedLocales: AppLocalizations.supportedLocales,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
-          initialRoute: start,
+          home: home, // <-- головний екран без initialRoute
           routes: {
-            '/': (ctx) => AppLoginScreen(
-                  // <-- якщо у тебе клас LoginScreen, заміни тут
-                  onLocaleChanged: (l) =>
-                      ref.read(localeProvider.notifier).state = l,
-                ),
             '/login': (ctx) => AppLoginScreen(
                   onLocaleChanged: (l) =>
                       ref.read(localeProvider.notifier).state = l,
@@ -76,7 +75,6 @@ class MyApp extends ConsumerWidget {
               onLocaleChanged: (l) =>
                   ref.read(localeProvider.notifier).state = l,
             ),
-            settings: const RouteSettings(name: '/login'),
           ),
         );
       },
