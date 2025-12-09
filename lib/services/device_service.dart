@@ -9,6 +9,9 @@ import 'package:flutter/widgets.dart' show WidgetsBinding;
 
 import 'package:giveaway_app/services/api_client.dart';
 import 'package:giveaway_app/utils/constants.dart';
+
+// Якщо у тебе будуть окремі реалізації для web/io – залишаєш.
+// Якщо ні – цей export можна видалити.
 export 'device_service_io.dart'
     if (dart.library.html) 'device_service_web.dart';
 
@@ -92,7 +95,9 @@ class DeviceService {
       final r1 = await _dio.postUri(
         collectGeoUri,
         data: {'deviceInfo': info},
-        options: Options(headers: {'Content-Type': 'application/json'}),
+        options: Options(
+          headers: {'Content-Type': 'application/json'},
+        ),
       );
       if (r1.statusCode == 200 && r1.data is Map) {
         final body = r1.data as Map;
@@ -113,7 +118,9 @@ class DeviceService {
     final r2 = await _dio.postUri(
       deviceReportUri,
       data: {'deviceInfo': info},
-      options: Options(headers: {'Content-Type': 'application/json'}),
+      options: Options(
+        headers: {'Content-Type': 'application/json'},
+      ),
     );
     if (r2.statusCode == 200 && r2.data is Map) {
       return (r2.data as Map).cast<String, dynamic>();

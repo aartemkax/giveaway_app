@@ -1,39 +1,32 @@
-//lib/services/api_client.dart
-import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter_dotenv/flutter_dotenv.dart' as fdotenv;
+// lib/services/api_client.dart
 
-// Умовна платформа: для мобільних/десктопа — IO, для Web — browser.
-import 'http_adapter_io.dart' if (dart.library.html) 'http_adapter_web.dart';
+import 'package:dio/dio.dart';
+import 'package:giveaway_app/utils/constants.dart';
 
 class ApiClient {
-  static final ApiClient _i = ApiClient._();
-  factory ApiClient() => _i;
+  ApiClient._internal();
 
-  late final Dio dio;
+  static final ApiClient _instance = ApiClient._internal();
 
-  ApiClient._() {
-    final defineBase =
-        const String.fromEnvironment('API_BASE', defaultValue: '');
-    final envBase = fdotenv.dotenv.maybeGet('API_BASE') ?? '';
-    final baseUrl = (defineBase.isNotEmpty ? defineBase : envBase).isNotEmpty
-        ? (defineBase.isNotEmpty ? defineBase : envBase)
-        : 'http://10.0.2.2:8000';
+  factory ApiClient() => _instance;
 
-    dio = Dio(BaseOptions(
-      baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 30),
-      sendTimeout: const Duration(seconds: 30),
+  late final Dio dio = Dio(
+    BaseOptions(
+      baseUrl: apiBaseUrl,
+      connectTimeout: const Duration(seconds: 60),
+      receiveTimeout: const Duration(seconds: 60),
+      sendTimeout: const Duration(seconds: 60),
       headers: {'Accept': 'application/json'},
-    ));
+    ),
+  )..interceptors.add(
+      LogInterceptor(
+        requestBody: true,
+        responseBody: true,
+      ),
+    );
 
-    // Створюємо відповідний адаптер і прикріплюємо cookie-jar там, де це можливо.
-    dio.httpClientAdapter = createHttpAdapter(withCredentials: kIsWeb);
-    attachCookieJarIfSupported(dio);
-  }
-
+  /// Місце для очищення cookie Dio (якщо додаси CookieJar/CookieManager).
   Future<void> clearCookies() async {
-    await clearCookiesImpl();
+    // Наразі нічого не робить, але метод існує й не ламає компіляцію.
   }
 }

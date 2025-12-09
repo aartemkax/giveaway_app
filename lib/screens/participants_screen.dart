@@ -1,4 +1,5 @@
 // lib/screens/participants_screen.dart
+
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -39,34 +40,35 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   }
 
   Future<void> _logout() async {
-    final ctx = context; // зберігаємо ДО асинхронних викликів
-
     try {
       await ApiClient().dio.post('/api/logout');
     } catch (_) {}
+
     try {
       await CookieManager.instance().deleteAllCookies();
     } catch (_) {}
+
     try {
       await ApiClient().clearCookies();
     } catch (_) {}
+
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('isLoggedIn');
     } catch (_) {}
 
     if (!mounted) return;
-    Navigator.of(ctx).pushNamedAndRemoveUntil('/login', (r) => false);
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
   }
 
   Future<void> _refreshAndChoose() async {
-    final ctx = context; // фіксуємо BuildContext
-    final loc = AppLocalizations.of(ctx)!;
+    final loc = AppLocalizations.of(context)!;
 
     final n = int.tryParse(_countCtrl.text.trim()) ?? 0;
     if (n < 1) {
-      ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text(loc.error_invalid_winner_count)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(loc.error_invalid_winner_count)),
+      );
       return;
     }
 
@@ -74,7 +76,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
     try {
       final unique = (await _participantsService
-              .fetchParticipants(_urlCtrl.text.trim(), context: ctx))
+              .fetchParticipants(_urlCtrl.text.trim(), context: context))
           .toSet()
           .toList();
 
@@ -82,8 +84,9 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
       if (unique.isEmpty) {
         if (!mounted) return;
-        ScaffoldMessenger.of(ctx)
-            .showSnackBar(SnackBar(content: Text(loc.no_participants)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(loc.no_participants)),
+        );
         setState(() {
           _participants = [];
           _showCelebration = false;
@@ -94,26 +97,30 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       final limit = n.clamp(1, unique.length);
       final winners = unique.take(limit).toList();
 
+      if (!mounted) return;
       setState(() {
         _participants = winners;
         _showCelebration = true;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
-      final message = humanizeApiError(ctx, e);
+      final message = humanizeApiError(context, e);
       if (e.code == 'login_required' || e.code == 'invalid_credentials') {
-        Navigator.of(ctx).pushReplacementNamed('/login');
+        Navigator.of(context).pushReplacementNamed('/login');
       } else {
-        ScaffoldMessenger.of(ctx)
-            .showSnackBar(SnackBar(content: Text(message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
       }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(ctx).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(loc.error_internal_error)),
       );
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -159,7 +166,6 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       extendBodyBehindAppBar: true,
       body: Stack(
         children: [
-          // Фон
           Container(
             decoration: BoxDecoration(
               image: DecorationImage(
@@ -168,7 +174,6 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
               ),
             ),
           ),
-
           SafeArea(
             child: Column(
               children: [
@@ -223,7 +228,9 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                           child: Text(
                             loc.no_participants,
                             style: const TextStyle(
-                                fontSize: 18, color: Colors.white),
+                              fontSize: 18,
+                              color: Colors.white,
+                            ),
                           ),
                         )
                       : GridView.builder(
@@ -243,7 +250,6 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
               ],
             ),
           ),
-
           if (_loading)
             Positioned.fill(
               child: Container(
@@ -252,12 +258,14 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                   child: SizedBox(
                     width: 200,
                     height: 200,
-                    child: Lottie.asset(AssetPaths.loadingLottie, repeat: true),
+                    child: Lottie.asset(
+                      AssetPaths.loadingLottie,
+                      repeat: true,
+                    ),
                   ),
                 ),
               ),
             ),
-
           if (_showCelebration)
             Positioned.fill(
               child: Container(

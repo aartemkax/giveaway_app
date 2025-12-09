@@ -1,69 +1,79 @@
+// lib/screens/login/fb_oauth_screen.dart
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:giveaway_app/services/api_client.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class FbOAuthScreen extends StatefulWidget {
   const FbOAuthScreen({super.key});
+
   @override
   State<FbOAuthScreen> createState() => _FbOAuthScreenState();
 }
 
 class _FbOAuthScreenState extends State<FbOAuthScreen> {
-  bool _loading = true;
-  String? _error;
+  late final Dio _dio;
+  late final String _fbAuthUrl;
 
   @override
   void initState() {
     super.initState();
-    _start();
+
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: dotenv.env['API_BASE_URL']!,
+        connectTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 60),
+      ),
+    );
+
+    final clientId = dotenv.env['FB_CLIENT_ID']!; // додай у .env
+    final redirect = 'giveaway://oauth'; // має бути в FB App
+    final scope = 'public_profile,email,instagram_basic';
+    final state = DateTime.now().millisecondsSinceEpoch.toString();
+
+    _fbAuthUrl = 'https://www.facebook.com/v20.0/dialog/oauth'
+        '?client_id=$clientId'
+        '&redirect_uri=$redirect'
+        '&response_type=code'
+        '&state=$state'
+        '&scope=$scope';
   }
 
-  Future<void> _start() async {
-    try {
-      final dio = ApiClient().dio;
-      final r = await dio.get('/api/ig/login_url');
-      if (r.statusCode == 200 &&
-          r.data is Map &&
-          r.data['login_url'] is String) {
-        final url = Uri.parse(r.data['login_url'] as String);
-        final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
-        if (!ok) {
-          setState(() {
-            _error = 'Не вдалося відкрити браузер для авторизації.';
-            _loading = false;
-          });
-          return;
-        }
-      } else {
-        setState(() => _error = 'Сервер не повернув login_url.');
-      }
-    } catch (e) {
-      setState(() => _error = 'Помилка: $e');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+  Future<void> _exchangeCode(String code) async {
+    await _dio.post(
+      '/oauth/facebook/token',
+      data: {'code': code, 'redirect_uri': 'giveaway://oauth'},
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Facebook OAuth')),
-      body: Center(
-        child: _loading
-            ? const CircularProgressIndicator()
-            : _error != null
-                ? Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(_error!, textAlign: TextAlign.center),
-                  )
-                : const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'Після успішного логіну через браузер поверніться в додаток.\n'
-                      'Сесію збережено у кукі, можна переходити до вибору переможця.',
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
+      body: InAppWebView(
+        initialUrlRequest: URLRequest(url: WebUri(_fbAuthUrl)),
+        // FIX: без `const`, бо конструктор не const у v6.x
+        initialSettings: InAppWebViewSettings(javaScriptEnabled: true),
+        shouldOverrideUrlLoading: (controller, action) async {
+          final url = action.request.url?.toString() ?? '';
+          if (url.startsWith('giveaway://oauth')) {
+            final uri = Uri.parse(url);
+            final code = uri.queryParameters['code'];
+            final hasError = uri.queryParameters['error'] != null;
+
+            if (code != null && !hasError) {
+              await _exchangeCode(code);
+              if (!context.mounted) return NavigationActionPolicy.CANCEL;
+              Navigator.of(context).pop(true);
+            } else {
+              if (!context.mounted) return NavigationActionPolicy.CANCEL;
+              Navigator.of(context).pop(false);
+            }
+            return NavigationActionPolicy.CANCEL;
+          }
+          return NavigationActionPolicy.ALLOW;
+        },
       ),
     );
   }

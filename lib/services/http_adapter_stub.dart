@@ -1,3 +1,4 @@
+//lib/services/http_adapter_stub.dart
 import 'package:dio/dio.dart';
 
 HttpClientAdapter newAdapter() {

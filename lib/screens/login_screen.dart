@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
 import 'package:giveaway_app/screens/instagram_login_webview.dart';
-import 'package:giveaway_app/services/api_client.dart'; // ⬅️ потрібен для /api/debug_session
+import 'package:giveaway_app/services/api_client.dart';
 import 'package:giveaway_app/services/device_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -34,7 +34,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_loading) return;
     setState(() => _loading = true);
 
-    // 👉 1) Прогріваємо девайс на бекенді (emu_cache в сесії)
+    // 1) Прогріваємо девайс на бекенді (emu_cache в сесії)
     try {
       final raw = await DeviceService().collectFingerprint();
       await DeviceService().emulateOnServer(raw);
@@ -42,7 +42,9 @@ class _LoginScreenState extends State<LoginScreen> {
       // не блокуємо логін, якщо прогрів не вдався
     }
 
-    // 👉 2) Відкриваємо Instagram WebView
+    if (!mounted) return;
+
+    // 2) Відкриваємо Instagram WebView
     final ok = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const InstagramLoginWebView()),
     );
@@ -59,10 +61,12 @@ class _LoginScreenState extends State<LoginScreen> {
         if (!mounted) return;
         Navigator.of(context).pushReplacementNamed('/participants');
       } else if (retryIfNoSession) {
+        if (!mounted) return;
         setState(() => _loading = false);
         await _openInstagramWebLogin(retryIfNoSession: false);
         return;
       } else {
+        if (!mounted) return;
         final loc = AppLocalizations.of(context)!;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(loc.error_internal_error)),
@@ -70,7 +74,9 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
 
-    if (mounted) setState(() => _loading = false);
+    if (mounted) {
+      setState(() => _loading = false);
+    }
   }
 
   @override

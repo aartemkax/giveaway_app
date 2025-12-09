@@ -1,3 +1,4 @@
+// lib/services/device_service_mobile.dart
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:giveaway_app/services/api_client.dart';
 import 'package:dio/dio.dart';

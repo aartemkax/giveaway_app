@@ -1,13 +1,12 @@
 // lib/screens/home_screen.dart
-
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import '../models/participant.dart';
 import '../utils/api_exception.dart';
 import '../widgets/participant_card.dart';
-import '../services/appapi/app_participants_service.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
+import '../services/appapi/app_participants_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,16 +27,15 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loading = false;
 
   Future<void> _refreshAndChoose() async {
-    // Фіксуємо контекст і локалізації на старті
-    final ctx = context;
-    final loc = AppLocalizations.of(ctx)!;
+    // фіксуємо локалі одразу
+    final loc = AppLocalizations.of(context)!;
 
     setState(() => _loading = true);
 
-    // 1) Валідація кількості переможців
     final n = int.tryParse(_countCtrl.text.trim()) ?? 0;
     if (n < 1) {
-      ScaffoldMessenger.of(ctx).showSnackBar(
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(loc.error_invalid_winner_count)),
       );
       setState(() => _loading = false);
@@ -45,23 +43,23 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
-      // 2) Тягаємо учасників з бекенду
+      // тягнемо учасників
       final unique = (await _participantsService.fetchParticipants(
         _urlCtrl.text.trim(),
-        context: ctx, // використовуємо збережений ctx
+        context: context,
       ))
           .toSet()
           .toList();
 
       unique.shuffle(Random());
 
-      if (!mounted) return;
+      if (!context.mounted) return;
       setState(() {
         final take = n.clamp(1, unique.length);
         _winners = unique.take(take).toList();
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!context.mounted) return;
 
       String message;
       switch (e.code) {
@@ -80,8 +78,11 @@ class _HomeScreenState extends State<HomeScreen> {
         case 'login_required':
           if (e.detail == 'session_expired') {
             message = loc.error_session_expired;
-            Future.microtask(
-                () => Navigator.of(ctx).pushReplacementNamed('/login'));
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (context.mounted) {
+                Navigator.of(context).pushReplacementNamed('/login');
+              }
+            });
           } else {
             message = loc.error_login_required;
           }
@@ -96,20 +97,22 @@ class _HomeScreenState extends State<HomeScreen> {
           message = loc.error_generic(e.code);
       }
 
-      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(ctx).showSnackBar(
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(loc.error_internal_error)),
       );
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (context.mounted) setState(() => _loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context)!;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(loc.home_title),

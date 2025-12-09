@@ -1,6 +1,8 @@
 // lib/screens/login/app_login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
@@ -16,6 +18,12 @@ class AppLoginScreen extends StatefulWidget {
 
 class _AppLoginScreenState extends State<AppLoginScreen> {
   bool _loading = false;
+
+  // Безпечний доступ до базового URL (fallback на 10.0.2.2 для емультора)
+  String get _apiBaseUrl =>
+      (dotenv.env['API_BASE_URL']?.trim().isNotEmpty ?? false)
+          ? dotenv.env['API_BASE_URL']!.trim()
+          : 'http://10.0.2.2:8000';
 
   Future<void> _openInstagramWebLogin() async {
     if (_loading) return;
@@ -34,6 +42,23 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
       await prefs.setString('auth_method', 'custom');
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/participants');
+    }
+  }
+
+  // Пінг бека перед офіційним OAuth
+  Future<bool> _pingAuthServer() async {
+    try {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: _apiBaseUrl,
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 10),
+        ),
+      );
+      await dio.get('/healthz'); // очікується 200 OK
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -90,7 +115,20 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
                   child: ElevatedButton(
                     onPressed: _loading
                         ? null
-                        : () {
+                        : () async {
+                            final ok = await _pingAuthServer();
+                            if (!mounted) return;
+
+                            if (!ok) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Сервер авторизації недоступний. Спробуйте пізніше',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
                             Navigator.of(context).pushNamed('/fb_oauth');
                           },
                     style: ElevatedButton.styleFrom(
@@ -116,7 +154,9 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
                   child: Text(
                     'Для приватних сторінок',
                     style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w600),
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 6),

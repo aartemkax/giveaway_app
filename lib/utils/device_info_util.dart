@@ -1,10 +1,12 @@
 // lib/utils/device_info_util.dart
 
+import 'dart:convert';
 import 'dart:io';
+
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
+
 import '../utils/constants.dart';
 
 class DeviceInfoUtil {
@@ -47,7 +49,7 @@ class DeviceInfoUtil {
       });
     }
 
-    // Зовнішній IP + регіон через GEO_SERVICE_URL
+    // Зовнішній IP + регіон через GEO_SERVICE_URL / geoServiceUrl
     try {
       final resp = await http.get(Uri.parse(geoServiceUrl));
       if (resp.statusCode == 200) {
