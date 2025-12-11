@@ -13,28 +13,39 @@ class FbOAuthScreen extends StatefulWidget {
 
 class _FbOAuthScreenState extends State<FbOAuthScreen> {
   late final Dio _dio;
-  late final String _fbAuthUrl;
+  String? _fbAuthUrl;
+
+  String get _redirectUri =>
+      dotenv.env['FB_REDIRECT_URI'] ?? 'giveaway://oauth';
 
   @override
   void initState() {
     super.initState();
 
+    final apiBase = dotenv.env['API_BASE_URL'];
+    final clientId = dotenv.env['FB_CLIENT_ID'];
+
+    if (apiBase == null || clientId == null) {
+      // жорстка, але зрозуміла помилка замість крашу з "!"
+      throw StateError(
+        'API_BASE_URL або FB_CLIENT_ID не задані в .env',
+      );
+    }
+
     _dio = Dio(
       BaseOptions(
-        baseUrl: dotenv.env['API_BASE_URL']!,
+        baseUrl: apiBase,
         connectTimeout: const Duration(seconds: 60),
         receiveTimeout: const Duration(seconds: 60),
       ),
     );
 
-    final clientId = dotenv.env['FB_CLIENT_ID']!; // додай у .env
-    final redirect = 'giveaway://oauth'; // має бути в FB App
     final scope = 'public_profile,email,instagram_basic';
     final state = DateTime.now().millisecondsSinceEpoch.toString();
 
     _fbAuthUrl = 'https://www.facebook.com/v20.0/dialog/oauth'
         '?client_id=$clientId'
-        '&redirect_uri=$redirect'
+        '&redirect_uri=$_redirectUri'
         '&response_type=code'
         '&state=$state'
         '&scope=$scope';
@@ -43,31 +54,46 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
   Future<void> _exchangeCode(String code) async {
     await _dio.post(
       '/oauth/facebook/token',
-      data: {'code': code, 'redirect_uri': 'giveaway://oauth'},
+      data: {
+        'code': code,
+        'redirect_uri': _redirectUri,
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // якщо initState не зібрав URL (через помилку конфігурації)
+    if (_fbAuthUrl == null) {
+      return const Scaffold(
+        body: Center(
+          child: Text('Facebook OAuth is not configured'),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Facebook OAuth')),
       body: InAppWebView(
-        initialUrlRequest: URLRequest(url: WebUri(_fbAuthUrl)),
-        // FIX: без `const`, бо конструктор не const у v6.x
+        initialUrlRequest: URLRequest(url: WebUri(_fbAuthUrl!)),
         initialSettings: InAppWebViewSettings(javaScriptEnabled: true),
         shouldOverrideUrlLoading: (controller, action) async {
           final url = action.request.url?.toString() ?? '';
-          if (url.startsWith('giveaway://oauth')) {
+          if (url.startsWith(_redirectUri)) {
             final uri = Uri.parse(url);
             final code = uri.queryParameters['code'];
             final hasError = uri.queryParameters['error'] != null;
 
             if (code != null && !hasError) {
               await _exchangeCode(code);
-              if (!context.mounted) return NavigationActionPolicy.CANCEL;
+              if (!context.mounted) {
+                return NavigationActionPolicy.CANCEL;
+              }
               Navigator.of(context).pop(true);
             } else {
-              if (!context.mounted) return NavigationActionPolicy.CANCEL;
+              if (!context.mounted) {
+                return NavigationActionPolicy.CANCEL;
+              }
               Navigator.of(context).pop(false);
             }
             return NavigationActionPolicy.CANCEL;
