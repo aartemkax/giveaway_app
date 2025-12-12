@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'package:giveaway_app/services/api_client.dart';
+
 class FbOAuthScreen extends StatefulWidget {
   const FbOAuthScreen({super.key});
 
@@ -22,23 +24,14 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
   void initState() {
     super.initState();
 
-    final apiBase = dotenv.env['API_BASE_URL'];
+    // Використовуємо спільний Dio з cookie-jar
+    _dio = ApiClient().dio;
+
     final clientId = dotenv.env['FB_CLIENT_ID'];
-
-    if (apiBase == null || clientId == null) {
-      // жорстка, але зрозуміла помилка замість крашу з "!"
-      throw StateError(
-        'API_BASE_URL або FB_CLIENT_ID не задані в .env',
-      );
+    if (clientId == null || clientId.isEmpty) {
+      // Конфіг немає – краще кинути явну помилку, ніж ловити null.
+      throw StateError('FB_CLIENT_ID не заданий у .env');
     }
-
-    _dio = Dio(
-      BaseOptions(
-        baseUrl: apiBase,
-        connectTimeout: const Duration(seconds: 60),
-        receiveTimeout: const Duration(seconds: 60),
-      ),
-    );
 
     final scope = 'public_profile,email,instagram_basic';
     final state = DateTime.now().millisecondsSinceEpoch.toString();
@@ -54,7 +47,7 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
   Future<void> _exchangeCode(String code) async {
     await _dio.post(
       '/oauth/facebook/token',
-      data: {
+      data: <String, dynamic>{
         'code': code,
         'redirect_uri': _redirectUri,
       },
@@ -63,7 +56,7 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // якщо initState не зібрав URL (через помилку конфігурації)
+    // Якщо зламаний конфіг і URL не зібрався
     if (_fbAuthUrl == null) {
       return const Scaffold(
         body: Center(
@@ -76,9 +69,14 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
       appBar: AppBar(title: const Text('Facebook OAuth')),
       body: InAppWebView(
         initialUrlRequest: URLRequest(url: WebUri(_fbAuthUrl!)),
-        initialSettings: InAppWebViewSettings(javaScriptEnabled: true),
+        initialSettings: InAppWebViewSettings(
+          javaScriptEnabled: true,
+        ),
         shouldOverrideUrlLoading: (controller, action) async {
           final url = action.request.url?.toString() ?? '';
+          // Лог для відладки – видно всі переходи
+          debugPrint('FB OAuth navigate: $url');
+
           if (url.startsWith(_redirectUri)) {
             final uri = Uri.parse(url);
             final code = uri.queryParameters['code'];
@@ -98,6 +96,7 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
             }
             return NavigationActionPolicy.CANCEL;
           }
+
           return NavigationActionPolicy.ALLOW;
         },
       ),
