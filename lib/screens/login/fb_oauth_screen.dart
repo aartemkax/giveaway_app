@@ -17,8 +17,7 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
   late final Dio _dio;
   String? _fbAuthUrl;
 
-  String get _redirectUri =>
-      dotenv.env['FB_REDIRECT_URI'] ?? 'giveaway://oauth';
+  String get _redirectUri => dotenv.env['FB_REDIRECT_URI']!;
 
   @override
   void initState() {
@@ -47,10 +46,7 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
   Future<void> _exchangeCode(String code) async {
     await _dio.post(
       '/oauth/facebook/token',
-      data: <String, dynamic>{
-        'code': code,
-        'redirect_uri': _redirectUri,
-      },
+      data: {'code': code, 'redirect_uri': _redirectUri},
     );
   }
 
@@ -80,18 +76,14 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
           if (url.startsWith(_redirectUri)) {
             final uri = Uri.parse(url);
             final code = uri.queryParameters['code'];
-            final hasError = uri.queryParameters['error'] != null;
+            final error = uri.queryParameters['error'];
 
-            if (code != null && !hasError) {
+            if (code != null && error == null) {
               await _exchangeCode(code);
-              if (!context.mounted) {
-                return NavigationActionPolicy.CANCEL;
-              }
+              if (!context.mounted) return NavigationActionPolicy.CANCEL;
               Navigator.of(context).pop(true);
             } else {
-              if (!context.mounted) {
-                return NavigationActionPolicy.CANCEL;
-              }
+              if (!context.mounted) return NavigationActionPolicy.CANCEL;
               Navigator.of(context).pop(false);
             }
             return NavigationActionPolicy.CANCEL;
