@@ -67,18 +67,18 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
         initialUrlRequest: URLRequest(url: WebUri(_fbAuthUrl!)),
         initialSettings: InAppWebViewSettings(
           javaScriptEnabled: true,
+          useShouldOverrideUrlLoading: true,
         ),
         shouldOverrideUrlLoading: (controller, action) async {
           final url = action.request.url?.toString() ?? '';
-          // Лог для відладки – видно всі переходи
-          debugPrint('FB OAuth navigate: $url');
 
+          // перехоплюємо редірект туди, що вказали як redirect_uri
           if (url.startsWith(_redirectUri)) {
             final uri = Uri.parse(url);
             final code = uri.queryParameters['code'];
-            final error = uri.queryParameters['error'];
+            final hasError = uri.queryParameters['error'] != null;
 
-            if (code != null && error == null) {
+            if (code != null && !hasError) {
               await _exchangeCode(code);
               if (!context.mounted) return NavigationActionPolicy.CANCEL;
               Navigator.of(context).pop(true);
