@@ -1072,7 +1072,6 @@ def export_csv():
     )
 # ── Facebook OAuth token exchange ─────────────────────────────────────────────
 bp = Blueprint("oauth", __name__)
-app.register_blueprint(bp)
 
 @bp.post("/api/oauth/facebook/token")
 def facebook_token():
@@ -1108,6 +1107,8 @@ def facebook_token():
 
     _save_fb_tokens(token, expires_in)   # <-- ключове
     return jsonify({"ok": True}), 200
+
+app.register_blueprint(bp)
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
