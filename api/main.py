@@ -13,9 +13,8 @@ import random, hashlib
 import csv, io
 import requests as rq
 GRAPH = "https://graph.facebook.com/v21.0"
-from flask import Response
 
-from flask import Flask, request, jsonify, session, Response, Blueprint
+from flask import Flask, request, jsonify, session, Response
 from flask_cors import CORS
 from flask_session import Session
 from dotenv import load_dotenv
@@ -581,15 +580,20 @@ def fb_login_url_endpoint():
     except Exception as e:
         logger.exception("fb_login_url failed")
         return jsonify({"error": "config_error", "detail": str(e)}), 503
-
+    
 @app.get("/api/fb/callback")
 def fb_callback():
-    code  = request.args.get("code")
-    state = request.args.get("state")
+    return "<html><body>OK. You can close this page.</body></html>", 200
 
-    allowed = {s for s, _ in (session.get("fb_oauth_states") or [])}
-    if not code or state not in allowed:
-        return jsonify({"error": "oauth_failed", "detail": "state mismatch or no code"}), 400
+
+# @app.get("/api/fb/callback")
+# def fb_callback():
+#     code  = request.args.get("code")
+#     state = request.args.get("state")
+
+#     allowed = {s for s, _ in (session.get("fb_oauth_states") or [])}
+#     if not code or state not in allowed:
+#         return jsonify({"error": "oauth_failed", "detail": "state mismatch or no code"}), 400
 
     session["fb_oauth_states"] = [(s, t) for (s, t) in (session.get("fb_oauth_states") or []) if s != state]
 
@@ -1071,9 +1075,7 @@ def export_csv():
         headers={"Content-Disposition":"attachment; filename=participants.csv"}
     )
 # ── Facebook OAuth token exchange ─────────────────────────────────────────────
-bp = Blueprint("oauth", __name__)
-
-@bp.post("/api/oauth/facebook/token")
+@app.post("/api/oauth/facebook/token")
 def facebook_token():
     data = request.get_json(silent=True) or {}
     code = data.get("code")
@@ -1107,8 +1109,6 @@ def facebook_token():
 
     _save_fb_tokens(token, expires_in)   # <-- ключове
     return jsonify({"ok": True}), 200
-
-app.register_blueprint(bp)
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
