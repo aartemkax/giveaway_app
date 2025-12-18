@@ -15,7 +15,7 @@ import requests as rq
 GRAPH = "https://graph.facebook.com/v21.0"
 from flask import Response
 
-from flask import Flask, request, jsonify, session, Response
+from flask import Flask, request, jsonify, session, Response, Blueprint
 from flask_cors import CORS
 from flask_session import Session
 from dotenv import load_dotenv
@@ -1070,6 +1070,44 @@ def export_csv():
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition":"attachment; filename=participants.csv"}
     )
+# ── Facebook OAuth token exchange ─────────────────────────────────────────────
+bp = Blueprint("oauth", __name__)
+app.register_blueprint(bp)
+
+@bp.post("/api/oauth/facebook/token")
+def facebook_token():
+    data = request.get_json(silent=True) or {}
+    code = data.get("code")
+    redirect_uri = data.get("redirect_uri")
+
+    if not code or not redirect_uri:
+        return jsonify({"error": "bad_request", "detail": "code/redirect_uri required"}), 400
+
+    expected = os.getenv("FB_REDIRECT_URI")
+    if expected and redirect_uri != expected:
+        return jsonify({"error": "bad_request", "detail": "redirect_uri mismatch"}), 400
+
+    params = {
+        "client_id": os.environ["FB_APP_ID"],
+        "client_secret": os.environ["FB_APP_SECRET"],
+        "redirect_uri": redirect_uri,
+        "code": code,
+    }
+
+    r = rq.get("https://graph.facebook.com/v20.0/oauth/access_token", params=params, timeout=30)
+    try:
+        payload = r.json()
+    except Exception:
+        return jsonify({"error": "graph_bad_response", "text": r.text}), 502
+
+    if r.status_code != 200 or "access_token" not in payload:
+        return jsonify({"error": "graph_error", "detail": payload}), r.status_code
+
+    token = payload["access_token"]
+    expires_in = int(payload.get("expires_in", 3600))
+
+    _save_fb_tokens(token, expires_in)   # <-- ключове
+    return jsonify({"ok": True}), 200
 
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])

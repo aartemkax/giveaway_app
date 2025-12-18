@@ -32,8 +32,8 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
       throw StateError('FB_CLIENT_ID не заданий у .env');
     }
 
-    final scope = 'public_profile,email,instagram_basic';
     final state = DateTime.now().millisecondsSinceEpoch.toString();
+    final scope = Uri.encodeComponent('public_profile,email,instagram_basic');
 
     _fbAuthUrl = 'https://www.facebook.com/v20.0/dialog/oauth'
         '?client_id=$clientId'
@@ -45,7 +45,7 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
 
   Future<void> _exchangeCode(String code) async {
     await _dio.post(
-      '/oauth/facebook/token',
+      '/api/oauth/facebook/token',
       data: {'code': code, 'redirect_uri': _redirectUri},
     );
   }
