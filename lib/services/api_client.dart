@@ -1,14 +1,31 @@
 // lib/services/api_client.dart
-
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:giveaway_app/utils/constants.dart';
 
 class ApiClient {
-  ApiClient._internal() {
-    _cookieJar = CookieJar();
+  ApiClient._internal();
+
+  static final ApiClient _instance = ApiClient._internal();
+  factory ApiClient() => _instance;
+
+  late final Dio dio;
+  late final PersistCookieJar _cookieJar;
+
+  bool _inited = false;
+
+  Future<void> init() async {
+    if (_inited) return;
+    _inited = true;
+
+    final dir = await getApplicationDocumentsDirectory();
+    _cookieJar = PersistCookieJar(
+      ignoreExpires: true,
+      storage: FileStorage('${dir.path}/cookies'),
+    );
 
     dio = Dio(
       BaseOptions(
@@ -16,14 +33,15 @@ class ApiClient {
         connectTimeout: const Duration(seconds: 60),
         receiveTimeout: const Duration(seconds: 60),
         sendTimeout: const Duration(seconds: 60),
-        headers: {
+        headers: const {
           'Accept': 'application/json',
         },
       ),
     );
 
-    // Спочатку cookie-менеджер, потім логер (щоб у логах були Cookie/Set-Cookie)
+    // 1) CookieManager першим
     dio.interceptors.add(CookieManager(_cookieJar));
+    // 2) Логер після — щоб бачити Cookie/Set-Cookie в логах
     dio.interceptors.add(
       LogInterceptor(
         requestBody: true,
@@ -32,15 +50,5 @@ class ApiClient {
     );
   }
 
-  static final ApiClient _instance = ApiClient._internal();
-
-  factory ApiClient() => _instance;
-
-  late final Dio dio;
-  late final CookieJar _cookieJar;
-
-  /// Очищення всіх HTTP-cookie Dio (для logout)
-  Future<void> clearCookies() async {
-    await _cookieJar.deleteAll();
-  }
+  Future<void> clearCookies() => _cookieJar.deleteAll();
 }

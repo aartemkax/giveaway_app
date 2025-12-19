@@ -41,16 +41,17 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
   Future<void> _logout() async {
     try {
+      // важливо: викликати поки cookie ще є, щоб бек точно почистив сесію
       await ApiClient().dio.post('/api/logout');
     } catch (_) {}
 
+    // WebView cookies (IG / OAuth webview) — можна чистити на logout
     try {
       await CookieManager.instance().deleteAllCookies();
     } catch (_) {}
 
-    try {
-      await ApiClient().clearCookies();
-    } catch (_) {}
+    // ВАЖЛИВО: не чистимо Dio cookie jar тут (мінімальний варіант)
+    // try { await ApiClient().clearCookies(); } catch (_) {}
 
     try {
       final prefs = await SharedPreferences.getInstance();

@@ -9,6 +9,8 @@ import 'screens/login/app_login_screen.dart'; // якщо клас у тебе L
 import 'screens/login/participants_screen.dart';
 import 'screens/password_login_screen.dart';
 import 'screens/login/fb_oauth_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:giveaway_app/services/api_client.dart';
 
 final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
 
@@ -19,8 +21,8 @@ final initialRouteProvider = FutureProvider<bool>((ref) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: '.env');
-  runApp(const ProviderScope(child: MyApp()));
+  await ApiClient().init();
+  runApp(const MyApp());
 }
 
 class MyApp extends ConsumerWidget {
