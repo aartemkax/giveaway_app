@@ -19,7 +19,6 @@ class ApiClient {
 
   Future<void> init() async {
     if (_inited) return;
-    _inited = true;
 
     final dir = await getApplicationDocumentsDirectory();
     _cookieJar = PersistCookieJar(
@@ -33,21 +32,14 @@ class ApiClient {
         connectTimeout: const Duration(seconds: 60),
         receiveTimeout: const Duration(seconds: 60),
         sendTimeout: const Duration(seconds: 60),
-        headers: const {
-          'Accept': 'application/json',
-        },
+        headers: const {'Accept': 'application/json'},
       ),
     );
 
-    // 1) CookieManager першим
     dio.interceptors.add(CookieManager(_cookieJar));
-    // 2) Логер після — щоб бачити Cookie/Set-Cookie в логах
-    dio.interceptors.add(
-      LogInterceptor(
-        requestBody: true,
-        responseBody: true,
-      ),
-    );
+    dio.interceptors.add(LogInterceptor(requestBody: true, responseBody: true));
+
+    _inited = true;
   }
 
   Future<void> clearCookies() => _cookieJar.deleteAll();

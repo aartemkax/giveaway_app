@@ -5,11 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
-import 'screens/login/app_login_screen.dart'; // якщо клас у тебе LoginScreen — заміни назву нижче
+import 'screens/login/app_login_screen.dart';
 import 'screens/login/participants_screen.dart';
 import 'screens/password_login_screen.dart';
 import 'screens/login/fb_oauth_screen.dart';
-import 'package:flutter/material.dart';
 import 'package:giveaway_app/services/api_client.dart';
 
 final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
@@ -21,8 +20,15 @@ final initialRouteProvider = FutureProvider<bool>((ref) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ВАЖЛИВО: спочатку завантажуємо .env, бо apiBaseUrl читає dotenv.env
+  await dotenv.load(fileName: ".env");
+
+  // Потім ініт Dio + cookie jar
   await ApiClient().init();
-  runApp(const MyApp());
+
+  // Riverpod root
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends ConsumerWidget {
@@ -56,7 +62,7 @@ class MyApp extends ConsumerWidget {
           locale: locState,
           supportedLocales: AppLocalizations.supportedLocales,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
-          home: home, // <-- головний екран без initialRoute
+          home: home,
           routes: {
             '/login': (ctx) => AppLoginScreen(
                   onLocaleChanged: (l) =>
