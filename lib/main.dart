@@ -19,19 +19,43 @@ typedef AuthState = ({bool isLoggedIn, String authMethod});
 
 final authStateProvider = FutureProvider<AuthState>((ref) async {
   final prefs = await SharedPreferences.getInstance();
-  return (
-    isLoggedIn: prefs.getBool('isLoggedIn') ?? false,
-    authMethod: (prefs.getString('auth_method') ?? '').trim(),
-  );
+  final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+  final authMethod = (prefs.getString('auth_method') ?? '').trim();
+
+  if (!isLoggedIn || authMethod.isEmpty) {
+    return (isLoggedIn: false, authMethod: '');
+  }
+
+  try {
+    // ApiClient вже інітиться в main(), але цей виклик безпечний
+    await ApiClient().init();
+
+    final r = await ApiClient().dio.get('/api/debug_session');
+    final m = (r.data is Map) ? Map<String, dynamic>.from(r.data as Map) : {};
+
+    final serverOk = (authMethod == 'fb')
+        ? (m['fb_user_token_present'] == true)
+        : (m['ig_settings_present'] == true);
+
+    if (serverOk) {
+      return (isLoggedIn: true, authMethod: authMethod);
+    }
+  } catch (_) {
+    // якщо бек недоступний — не робимо auto-logout тут
+    // залишимо як є, щоб юзер сам повторив дію
+    return (isLoggedIn: true, authMethod: authMethod);
+  }
+
+  // серверної сесії нема -> скидаємо локально
+  await prefs.setBool('isLoggedIn', false);
+  await prefs.remove('auth_method');
+  return (isLoggedIn: false, authMethod: '');
 });
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // спочатку .env (apiBaseUrl читає dotenv)
   await dotenv.load(fileName: '.env');
-
-  // потім init Dio + cookie jar
   await ApiClient().init();
 
   runApp(const ProviderScope(child: MyApp()));

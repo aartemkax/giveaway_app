@@ -1,4 +1,4 @@
-//lib/screens/login/app_login_screen.dart
+// lib/screens/login/app_login_screen.dart
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -35,6 +35,16 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
     }
   }
 
+  Future<bool> _serverHasFbSession() async {
+    try {
+      final r = await ApiClient().dio.get('/api/debug_session');
+      final m = (r.data is Map) ? Map<String, dynamic>.from(r.data as Map) : {};
+      return m['fb_user_token_present'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _openFacebookOAuth() async {
     if (_loading) return;
     setState(() => _loading = true);
@@ -55,16 +65,26 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
     final res = await Navigator.of(context).pushNamed('/fb_oauth');
 
     if (!mounted) return;
+
+    final fbOk = (res == true) && await _serverHasFbSession();
+
     setState(() => _loading = false);
 
-    if (res == true) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('auth_method', 'fb');
-
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/fb_home');
+    if (!fbOk) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('FB OAuth не підтвердився на сервері. Повтори логін.'),
+        ),
+      );
+      return;
     }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setString('auth_method', 'fb');
+
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed('/fb_home');
   }
 
   Future<void> _openInstagramWebLogin() async {
