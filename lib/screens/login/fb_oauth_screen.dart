@@ -12,125 +12,105 @@ class FbOAuthScreen extends StatefulWidget {
 }
 
 class _FbOAuthScreenState extends State<FbOAuthScreen> {
-  String? _loginUrl;
+  String? _authUrl;
   String? _redirectUri;
+  bool _loading = true;
   String? _error;
-  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    _loadLoginUrl();
+    _loadAuthUrl();
   }
 
-  Future<void> _loadLoginUrl() async {
+  Future<void> _loadAuthUrl() async {
     try {
       await ApiClient().init();
-      final dio = ApiClient().dio;
+      final r = await ApiClient().dio.get('/api/fb/login_url');
 
-      final r = await dio.get('/api/fb/login_url');
-      if (r.data is! Map) {
-        throw StateError('fb/login_url malformed');
-      }
-      final url = (r.data as Map)['url'] as String?;
+      final data = (r.data is Map) ? (r.data as Map) : <String, dynamic>{};
+      final url = data['url'] as String?;
+
       if (url == null || url.isEmpty) {
-        throw StateError('fb/login_url missing url');
+        throw StateError('fb login_url malformed');
       }
 
-      final u = Uri.parse(url);
-      final redirect = u.queryParameters['redirect_uri'] ??
-          '${dio.options.baseUrl}/api/fb/callback';
+      final redirect = Uri.parse(url).queryParameters['redirect_uri'];
+      if (redirect == null || redirect.isEmpty) {
+        throw StateError('redirect_uri missing in fb login_url');
+      }
 
-      if (!mounted) return;
       setState(() {
-        _loginUrl = url;
+        _authUrl = url;
         _redirectUri = redirect;
+        _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString());
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
     }
   }
 
   Future<void> _exchangeCode(String code) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-
-    try {
-      final dio = ApiClient().dio;
-      final redirectUri =
-          _redirectUri ?? '${dio.options.baseUrl}/api/fb/callback';
-
-      await dio.post(
-        '/api/oauth/facebook/token',
-        data: {'code': code, 'redirect_uri': redirectUri},
-      );
-
-      // швидка перевірка, що токен реально ліг у сесію
-      await dio.get('/api/fb/_whoami');
-
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.of(context).pop(false);
-    }
+    await ApiClient().dio.post(
+      '/api/oauth/facebook/token',
+      data: {'code': code, 'redirect_uri': _redirectUri},
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_error != null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Facebook OAuth')),
-        body: Center(child: Text('OAuth init error: $_error')),
-      );
-    }
-
-    if (_loginUrl == null) {
+    if (_loading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
+    if (_error != null || _authUrl == null || _redirectUri == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Facebook OAuth')),
+        body: Center(child: Text(_error ?? 'Facebook OAuth not configured')),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Facebook OAuth')),
-      body: Stack(
-        children: [
-          InAppWebView(
-            initialUrlRequest: URLRequest(url: WebUri(_loginUrl!)),
-            initialSettings: InAppWebViewSettings(
-              javaScriptEnabled: true,
-              useShouldOverrideUrlLoading: true,
-            ),
-            shouldOverrideUrlLoading: (controller, action) async {
-              final url = action.request.url?.toString() ?? '';
-              final redirect = _redirectUri;
+      body: InAppWebView(
+        initialUrlRequest: URLRequest(url: WebUri(_authUrl!)),
+        initialSettings: InAppWebViewSettings(
+          javaScriptEnabled: true,
+          useShouldOverrideUrlLoading: true,
+        ),
+        shouldOverrideUrlLoading: (controller, action) async {
+          final url = action.request.url?.toString() ?? '';
 
-              if (redirect != null && url.startsWith(redirect)) {
-                final uri = Uri.parse(url);
-                final code = uri.queryParameters['code'];
-                final hasError = uri.queryParameters['error'] != null;
+          // редірект на твій бек callback
+          if (url.startsWith(_redirectUri!)) {
+            final uri = Uri.parse(url);
+            final code = uri.queryParameters['code'];
+            final err = uri.queryParameters['error'];
 
-                if (code != null && !hasError) {
-                  await _exchangeCode(code);
-                } else {
-                  if (!context.mounted) return NavigationActionPolicy.CANCEL;
-                  Navigator.of(context).pop(false);
-                }
-                return NavigationActionPolicy.CANCEL;
+            if (code != null && err == null) {
+              try {
+                await _exchangeCode(code);
+                if (!context.mounted) return NavigationActionPolicy.CANCEL;
+                Navigator.of(context).pop(true);
+              } catch (_) {
+                if (!context.mounted) return NavigationActionPolicy.CANCEL;
+                Navigator.of(context).pop(false);
               }
+            } else {
+              if (!context.mounted) return NavigationActionPolicy.CANCEL;
+              Navigator.of(context).pop(false);
+            }
 
-              return NavigationActionPolicy.ALLOW;
-            },
-          ),
-          if (_busy)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black26,
-                child: const Center(child: CircularProgressIndicator()),
-              ),
-            ),
-        ],
+            return NavigationActionPolicy.CANCEL;
+          }
+
+          return NavigationActionPolicy.ALLOW;
+        },
       ),
     );
   }

@@ -1,14 +1,12 @@
 //lib/screens/login/app_login_screen.dart
-import 'dart:async';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
-import 'package:giveaway_app/services/api_client.dart';
 import 'package:giveaway_app/screens/login/instagram_login_webview.dart';
+import 'package:giveaway_app/services/api_client.dart';
 
 class AppLoginScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
@@ -24,23 +22,48 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
   Future<bool> _pingAuthServer() async {
     try {
       await ApiClient().init();
-      final dio = ApiClient().dio;
-
-      final cancelToken = CancelToken();
-      final timer = Timer(const Duration(seconds: 10), () {
-        if (!cancelToken.isCancelled) {
-          cancelToken.cancel('timeout');
-        }
-      });
-
-      try {
-        final r = await dio.get('/healthz', cancelToken: cancelToken);
-        return r.statusCode == 200;
-      } finally {
-        timer.cancel();
-      }
+      final r = await ApiClient().dio.get(
+            '/healthz',
+            options: Options(
+              sendTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 10),
+            ),
+          );
+      return r.statusCode == 200;
     } catch (_) {
       return false;
+    }
+  }
+
+  Future<void> _openFacebookOAuth() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+
+    final ok = await _pingAuthServer();
+    if (!mounted) return;
+
+    if (!ok) {
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Сервер авторизації недоступний. Спробуйте пізніше'),
+        ),
+      );
+      return;
+    }
+
+    final res = await Navigator.of(context).pushNamed('/fb_oauth');
+
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    if (res == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('auth_method', 'fb');
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed('/fb_home');
     }
   }
 
@@ -62,41 +85,6 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
 
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/participants');
-    }
-  }
-
-  Future<void> _startFacebookOAuth() async {
-    if (_loading) return;
-    setState(() => _loading = true);
-
-    final okServer = await _pingAuthServer();
-    if (!mounted) return;
-
-    if (!okServer) {
-      setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Сервер недоступний. Спробуйте пізніше')),
-      );
-      return;
-    }
-
-    // чекаємо результат з FbOAuthScreen (pop(true/false))
-    final ok = await Navigator.of(context).pushNamed<bool>('/fb_oauth');
-
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    if (ok == true) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('auth_method', 'fb');
-
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/fb_home');
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Facebook OAuth не завершено')),
-      );
     }
   }
 
@@ -148,7 +136,7 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _loading ? null : _startFacebookOAuth,
+                    onPressed: _loading ? null : _openFacebookOAuth,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                     ),
