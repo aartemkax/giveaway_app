@@ -1110,6 +1110,15 @@ def facebook_token():
     _save_fb_tokens(token, expires_in)   # <-- ключове
     return jsonify({"ok": True}), 200
 
+# ── Debug endpoints ───────────────────────────────────────────────────────────
+@app.route('/api/debug_session', methods=['GET'])
+def debug_session():
+    return jsonify({
+        "session_keys": list(session.keys()),
+        "ig_settings_present": "ig_settings" in session,
+        "fb_user_token_present": "fb_user_token" in session,
+    }), 200
+
 # ── Root (landing) ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
 def index():

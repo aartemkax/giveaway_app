@@ -1,12 +1,10 @@
 // lib/screens/login/app_login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:dio/dio.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
 import 'package:giveaway_app/screens/login/instagram_login_webview.dart';
+import 'package:giveaway_app/services/api_client.dart';
 
 class AppLoginScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
@@ -19,11 +17,32 @@ class AppLoginScreen extends StatefulWidget {
 class _AppLoginScreenState extends State<AppLoginScreen> {
   bool _loading = false;
 
-  // Безпечний доступ до базового URL (fallback на 10.0.2.2 для емультора)
-  String get _apiBaseUrl =>
-      (dotenv.env['API_BASE_URL']?.trim().isNotEmpty ?? false)
-          ? dotenv.env['API_BASE_URL']!.trim()
-          : 'http://10.0.2.2:8000';
+  // Пінг бека перед OAuth (через спільний ApiClient, без нового Dio)
+  Future<bool> _pingAuthServer() async {
+    try {
+      await ApiClient().init();
+      final dio = ApiClient().dio;
+
+      final prevConnect = dio.options.connectTimeout;
+      final prevSend = dio.options.sendTimeout;
+      final prevReceive = dio.options.receiveTimeout;
+
+      dio.options.connectTimeout = const Duration(seconds: 10);
+      dio.options.sendTimeout = const Duration(seconds: 10);
+      dio.options.receiveTimeout = const Duration(seconds: 10);
+
+      try {
+        final r = await dio.get('/healthz');
+        return r.statusCode == 200;
+      } finally {
+        dio.options.connectTimeout = prevConnect;
+        dio.options.sendTimeout = prevSend;
+        dio.options.receiveTimeout = prevReceive;
+      }
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<void> _openInstagramWebLogin() async {
     if (_loading) return;
@@ -45,20 +64,35 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
     }
   }
 
-  // Пінг бека перед офіційним OAuth
-  Future<bool> _pingAuthServer() async {
-    try {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: _apiBaseUrl,
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
+  Future<void> _openFacebookOAuth() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+
+    final okServer = await _pingAuthServer();
+    if (!mounted) return;
+
+    if (!okServer) {
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Сервер авторизації недоступний. Спробуйте пізніше'),
         ),
       );
-      await dio.get('/healthz'); // очікується 200 OK
-      return true;
-    } catch (_) {
-      return false;
+      return;
+    }
+
+    // ВАЖЛИВО: чекаємо результат з /fb_oauth, інакше ти не ставиш isLoggedIn
+    final ok = await Navigator.of(context).pushNamed('/fb_oauth');
+
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    if (ok == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('auth_method', 'fb');
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed('/participants');
     }
   }
 
@@ -106,38 +140,24 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
                     ),
                   ],
                 ),
-
                 const Spacer(),
-
-                // 1) Офіційний API FB (через окремий екран /fb_oauth)
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _loading
-                        ? null
-                        : () async {
-                            final ok = await _pingAuthServer();
-                            if (!mounted) return;
-
-                            if (!ok) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Сервер авторизації недоступний. Спробуйте пізніше',
-                                  ),
-                                ),
-                              );
-                              return;
-                            }
-                            Navigator.of(context).pushNamed('/fb_oauth');
-                          },
+                    onPressed: _loading ? null : _openFacebookOAuth,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                     ),
-                    child: const Text(
-                      'Обрати переможця (офіційний API Facebook)',
-                      textAlign: TextAlign.center,
-                    ),
+                    child: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text(
+                            'Обрати переможця (офіційний API Facebook)',
+                            textAlign: TextAlign.center,
+                          ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -145,10 +165,7 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
                   'Підходить для публічних сторінок/постів',
                   style: TextStyle(color: Colors.white70, fontSize: 12),
                 ),
-
                 const SizedBox(height: 16),
-
-                // 2) Для приватних сторінок — кастомний вхід
                 const Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -178,7 +195,6 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
                         : Text(loc.open_instagram_button),
                   ),
                 ),
-
                 const Spacer(flex: 2),
               ],
             ),
