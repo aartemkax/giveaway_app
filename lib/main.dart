@@ -1,33 +1,38 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
+import 'package:giveaway_app/services/api_client.dart';
+
 import 'screens/login/app_login_screen.dart';
-import 'screens/login/participants_screen.dart';
+import 'screens/participants_screen.dart';
 import 'screens/password_login_screen.dart';
 import 'screens/login/fb_oauth_screen.dart';
-import 'package:giveaway_app/services/api_client.dart';
+import 'screens/fb_home_screen.dart';
 
 final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
 
-final initialRouteProvider = FutureProvider<bool>((ref) async {
+final initialRouteProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final prefs = await SharedPreferences.getInstance();
-  return prefs.getBool('isLoggedIn') ?? false;
+  return {
+    'isLoggedIn': prefs.getBool('isLoggedIn') ?? false,
+    'authMethod': prefs.getString('auth_method') ?? '',
+  };
 });
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ВАЖЛИВО: спочатку завантажуємо .env, бо apiBaseUrl читає dotenv.env
-  await dotenv.load(fileName: ".env");
+  // 1) .env має бути завантажений ДО apiBaseUrl
+  await dotenv.load(fileName: '.env');
 
-  // Потім ініт Dio + cookie jar
+  // 2) ініт Dio + cookie jar
   await ApiClient().init();
 
-  // Riverpod root
+  // 3) Riverpod root
   runApp(const ProviderScope(child: MyApp()));
 }
 
@@ -37,25 +42,31 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final locState = ref.watch(localeProvider);
-    final isLoggedInAsync = ref.watch(initialRouteProvider);
+    final boot = ref.watch(initialRouteProvider);
 
-    return isLoggedInAsync.when(
+    return boot.when(
       loading: () => const MaterialApp(
         home: Scaffold(body: Center(child: CircularProgressIndicator())),
       ),
       error: (e, _) => MaterialApp(
         home: Scaffold(body: Center(child: Text('Init error: $e'))),
       ),
-      data: (isLoggedIn) {
-        final home = isLoggedIn
-            ? ParticipantsScreen(
-                onLocaleChanged: (l) =>
-                    ref.read(localeProvider.notifier).state = l,
-              )
-            : AppLoginScreen(
-                onLocaleChanged: (l) =>
-                    ref.read(localeProvider.notifier).state = l,
-              );
+      data: (st) {
+        final isLoggedIn = (st['isLoggedIn'] as bool?) ?? false;
+        final authMethod = ((st['authMethod'] as String?) ?? '').trim();
+
+        final Widget home;
+        if (!isLoggedIn) {
+          home = AppLoginScreen(
+            onLocaleChanged: (l) => ref.read(localeProvider.notifier).state = l,
+          );
+        } else if (authMethod == 'fb') {
+          home = const FbHomeScreen();
+        } else {
+          home = ParticipantsScreen(
+            onLocaleChanged: (l) => ref.read(localeProvider.notifier).state = l,
+          );
+        }
 
         return MaterialApp(
           title: 'Giveaway App',
@@ -64,21 +75,22 @@ class MyApp extends ConsumerWidget {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: home,
           routes: {
-            '/login': (ctx) => AppLoginScreen(
+            '/login': (_) => AppLoginScreen(
                   onLocaleChanged: (l) =>
                       ref.read(localeProvider.notifier).state = l,
                 ),
-            '/participants': (ctx) => ParticipantsScreen(
+            '/participants': (_) => ParticipantsScreen(
                   onLocaleChanged: (l) =>
                       ref.read(localeProvider.notifier).state = l,
                 ),
-            '/password_login': (ctx) => PasswordLoginScreen(
+            '/password_login': (_) => PasswordLoginScreen(
                   onLocaleChanged: (l) =>
                       ref.read(localeProvider.notifier).state = l,
                 ),
-            '/fb_oauth': (ctx) => const FbOAuthScreen(),
+            '/fb_oauth': (_) => const FbOAuthScreen(),
+            '/fb_home': (_) => const FbHomeScreen(),
           },
-          onUnknownRoute: (settings) => MaterialPageRoute(
+          onUnknownRoute: (_) => MaterialPageRoute(
             builder: (_) => AppLoginScreen(
               onLocaleChanged: (l) =>
                   ref.read(localeProvider.notifier).state = l,
