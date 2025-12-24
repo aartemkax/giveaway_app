@@ -44,13 +44,36 @@ class _FbHomeScreenState extends State<FbHomeScreen> {
     });
 
     try {
-      final r = await ApiClient().dio.get('/api/debug_session');
-      final m = (r.data is Map) ? Map<String, dynamic>.from(r.data as Map) : {};
-      final ok = m['fb_user_token_present'] == true;
+      final dio = ApiClient().dio;
 
-      if (!ok) {
+      // 1) Перевіряємо чи є FB token у server session
+      final dbg1 = await dio.get('/api/debug_session');
+      final m1 =
+          (dbg1.data is Map) ? Map<String, dynamic>.from(dbg1.data as Map) : {};
+
+      final fbOk = m1['fb_user_token_present'] == true;
+      final igOk = m1['ig_settings_present'] == true;
+
+      if (!fbOk) {
         await _logout();
         return;
+      }
+
+      // 2) Якщо IG settings ще не збережені — ініціалізуємо їх
+      if (!igOk) {
+        await dio.get('/api/ig/accounts');
+
+        final dbg2 = await dio.get('/api/debug_session');
+        final m2 = (dbg2.data is Map)
+            ? Map<String, dynamic>.from(dbg2.data as Map)
+            : {};
+
+        final igOk2 = m2['ig_settings_present'] == true;
+        if (!igOk2) {
+          _error = 'FB OAuth OK, але IG не знайдено/не прив’язано.\n'
+              'Перевір: FB Page + прив’язаний IG business/creator + права доступу.\n'
+              'Ендпоінт /api/ig/accounts повернув 0 або не зберіг ig_settings в session.';
+        }
       }
     } catch (e) {
       _error = e.toString();

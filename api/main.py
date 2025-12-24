@@ -820,7 +820,17 @@ def ig_accounts():
                     "ig_user_id": ig.get("id"),
                     "ig_username": ig.get("username"),
                 })
+        if rows:
+            # варіант 1: зберегти перший (мінімально достатньо)
+            session["ig_settings"] = {
+                "page_id": rows[0]["page_id"],
+                "ig_user_id": rows[0]["ig_user_id"],
+                "ig_username": rows[0].get("ig_username"),
+            }
+            session.modified = True
+
         return jsonify({"accounts": rows}), 200
+
     except Exception as e:
         logger.exception("ig_accounts failed")
         return jsonify({"error": "internal_error", "detail": str(e)}), 500
