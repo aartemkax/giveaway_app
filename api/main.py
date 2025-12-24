@@ -801,27 +801,61 @@ def ig_accounts():
     err = _ensure_fb_ready()
     if err:
         return jsonify(err[0]), err[1]
-    tok = _require_fb()
-    if not tok:
+
+    user_tok = _require_fb()
+    if not user_tok:
         return jsonify({"error": "login_required", "detail": "fb"}), 401
+
     try:
-        pages = list_pages(tok)
+        pages = list_pages(user_tok)
+
+        # 1) НЕ маскуємо Graph errors
+        if isinstance(pages, dict) and pages.get("error"):
+            return jsonify({"error": "graph_error", "detail": pages.get("error")}), 502
+
+        data = (pages.get("data") or []) if isinstance(pages, dict) else []
+        if not data:
+            # 2) Важлива розвилка: або немає Pages, або permission не granted
+            return jsonify({
+                "accounts": [],
+                "hint": "Graph /me/accounts returned 0 pages. "
+                        "Either: user has no FB Pages, or pages_show_list is not granted, "
+                        "or user has no tasks/access to the Page. "
+                        "Check /api/fb/_whoami or /api/fb/debug_pages."
+            }), 200
+
         rows = []
-        for p in (pages.get("data") or []):
-            ig = (
-                p.get("instagram_business_account")
-                or p.get("connected_instagram_account")
-                or {}
-            )
-            if ig.get("id"):
+        debug_pages = []
+
+        for p in data:
+            pid = p.get("id")
+            pname = p.get("name")
+            tasks = p.get("tasks")
+            page_tok = p.get("access_token")  # може бути None
+
+            ig = (p.get("instagram_business_account")
+                  or p.get("connected_instagram_account")
+                  or {})
+
+            debug_pages.append({
+                "page_id": pid,
+                "page_name": pname,
+                "tasks": tasks,
+                "page_access_token_present": bool(page_tok),
+                "ig_block_present": bool(ig),
+                "ig_id_present": bool((ig or {}).get("id")),
+            })
+
+            if (ig or {}).get("id"):
                 rows.append({
-                    "page_id": p.get("id"),
-                    "page_name": p.get("name"),
+                    "page_id": pid,
+                    "page_name": pname,
                     "ig_user_id": ig.get("id"),
                     "ig_username": ig.get("username"),
                 })
+
         if rows:
-            # варіант 1: зберегти перший (мінімально достатньо)
+            # якщо хочеш — збережи ще й page_access_token (він потрібен для IG Graph)
             session["ig_settings"] = {
                 "page_id": rows[0]["page_id"],
                 "ig_user_id": rows[0]["ig_user_id"],
@@ -829,7 +863,10 @@ def ig_accounts():
             }
             session.modified = True
 
-        return jsonify({"accounts": rows}), 200
+        return jsonify({
+            "accounts": rows,
+            "pages_debug": debug_pages  # щоб одразу бачити, що саме прийшло з Graph
+        }), 200
 
     except Exception as e:
         logger.exception("ig_accounts failed")

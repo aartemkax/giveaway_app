@@ -46,15 +46,20 @@ def me(token: str) -> dict:
 
 def list_pages(token: str) -> dict:
     fields = (
-        "id,name,access_token,"
+        "id,name,tasks,access_token,"
         "instagram_business_account{id,username},"
         "connected_instagram_account{id,username}"
     )
-    return rq.get(
+    r = rq.get(
         f"{GRAPH}/me/accounts",
-        params={"fields": fields, "access_token": token},
+        params={"fields": fields, "access_token": token, "limit": 100},
         timeout=20
-    ).json()
+    )
+    try:
+        return r.json()
+    except Exception:
+        return {"error": {"message": "bad_json", "status_code": r.status_code, "text": r.text}}
+
 
 def ig_media(ig_user_id: str, token: str, limit=50, after=None) -> dict:
     params = {
