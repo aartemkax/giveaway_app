@@ -45,10 +45,16 @@ def me(token: str) -> dict:
                   timeout=20).json()
 
 def list_pages(token: str) -> dict:
-    fields = "id,name,tasks,instagram_business_account,connected_instagram_account"
-    return rq.get(f"{GRAPH}/me/accounts",
-                  params={"fields": fields, "access_token": token},
-                  timeout=20).json()
+    fields = (
+        "id,name,access_token,"
+        "instagram_business_account{id,username},"
+        "connected_instagram_account{id,username}"
+    )
+    return rq.get(
+        f"{GRAPH}/me/accounts",
+        params={"fields": fields, "access_token": token},
+        timeout=20
+    ).json()
 
 def ig_media(ig_user_id: str, token: str, limit=50, after=None) -> dict:
     params = {
