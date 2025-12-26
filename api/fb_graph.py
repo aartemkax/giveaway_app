@@ -46,20 +46,38 @@ def me(token: str) -> dict:
 
 def list_pages(token: str) -> dict:
     fields = (
-        "id,name,tasks,access_token,"
+        "id,name,access_token,tasks,"
         "instagram_business_account{id,username},"
         "connected_instagram_account{id,username}"
     )
+
     r = rq.get(
         f"{GRAPH}/me/accounts",
-        params={"fields": fields, "access_token": token, "limit": 100},
-        timeout=20
+        params={
+            "fields": fields,
+            "limit": 200,
+            "access_token": token,
+        },
+        timeout=20,
     )
-    try:
-        return r.json()
-    except Exception:
-        return {"error": {"message": "bad_json", "status_code": r.status_code, "text": r.text}}
 
+    try:
+        payload = r.json()
+    except ValueError:
+        raise RuntimeError(f"Graph returned non-JSON ({r.status_code}): {r.text[:300]}")
+
+    if r.status_code != 200 or "error" in payload:
+        err = payload.get("error", {})
+        raise RuntimeError(
+            "Graph error "
+            f"status={r.status_code} "
+            f"code={err.get('code')} "
+            f"type={err.get('type')} "
+            f"message={err.get('message')} "
+            f"fbtrace_id={err.get('fbtrace_id')}"
+        )
+
+    return payload
 
 def ig_media(ig_user_id: str, token: str, limit=50, after=None) -> dict:
     params = {
