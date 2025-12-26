@@ -305,7 +305,8 @@ def job_view(job_id):
 def debug_session():
     return jsonify({
         "session_keys": list(session.keys()),
-        "ig_settings_present": "ig_settings" in session,
+        "ig_settings_present": "ig_settings" in session,              # instagrapi
+        "ig_graph_settings_present": "ig_graph_settings" in session,  # graph
         "fb_user_token_present": "fb_user_token" in session,
     }), 200
 
@@ -855,12 +856,11 @@ def ig_accounts():
                 })
 
         if rows:
-            # якщо хочеш — збережи ще й page_access_token (він потрібен для IG Graph)
-            session["ig_settings"] = {
-                "page_id": rows[0]["page_id"],
-                "ig_user_id": rows[0]["ig_user_id"],
-                "ig_username": rows[0].get("ig_username"),
-            }
+            session["ig_graph_settings"] = {
+        "page_id": rows[0]["page_id"],
+        "ig_user_id": rows[0]["ig_user_id"],
+        "ig_username": rows[0].get("ig_username"),
+        }
             session.modified = True
 
         return jsonify({

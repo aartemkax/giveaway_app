@@ -16,6 +16,8 @@ def login_url(state: str, scopes: list[str]) -> str:
         "state": state,
         "response_type": "code",
         "scope": " ".join(scopes),
+        "auth_type": "rerequest",
+        "return_scopes": "true",
     }
     return "https://www.facebook.com/v21.0/dialog/oauth?" + up.urlencode(q)
 
