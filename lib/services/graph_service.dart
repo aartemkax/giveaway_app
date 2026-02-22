@@ -10,8 +10,11 @@ class GraphService {
     return (r.data['url'] as String);
   }
 
-  // Після успішного OAuth бекенд вже збереже токен в сесії (cookie)
-  // Тому тут просто опитуємо:
+  Future<Map<String, dynamic>> whoami() async {
+    final r = await _dio.get('/api/fb/_whoami');
+    return r.data as Map<String, dynamic>;
+  }
+
   Future<List<Map<String, dynamic>>> igAccounts() async {
     final r = await _dio.get('/api/ig/accounts');
     return (r.data['accounts'] as List).cast<Map<String, dynamic>>();
