@@ -440,12 +440,13 @@ def fb_import_dbg():
 
 @app.get("/api/fb/_whoami")
 def fb_whoami():
+    err = _ensure_fb_ready()
+    if err:
+        return _json_nostore(err[0], err[1])
+
     tok = session.get("fb_user_token")
     if not tok:
         return _json_nostore({"error": "login_required"}, 401)
-
-    import requests as rq
-    GRAPH = "https://graph.facebook.com/v21.0"
 
     def q(path: str, **params):
         r = rq.get(f"{GRAPH}/{path}", params={**params, "access_token": tok}, timeout=15)
@@ -457,10 +458,10 @@ def fb_whoami():
                    timeout=15).json()
 
     return _json_nostore({
-    "me": q("me", fields="id,name"),
-    "scopes": q("me/permissions"),
-    "accounts": q("me/accounts", fields="id,name,tasks"),
-    "debug": debug
+        "me": q("me", fields="id,name"),
+        "scopes": q("me/permissions"),
+        "accounts": q("me/accounts", fields="id,name,tasks"),
+        "debug": debug
     }, 200)
 
 # ── FB Diag ───────────────────────────────────────────────────────────────────
@@ -1185,7 +1186,7 @@ def facebook_token():
         "code": code,
     }
 
-    r = rq.get("https://graph.facebook.com/v20.0/oauth/access_token", params=params, timeout=30)
+    r = rq.get("https://graph.facebook.com/v21.0/oauth/access_token", params=params, timeout=30)
     try:
         payload = r.json()
     except Exception:
