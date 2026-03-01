@@ -20,17 +20,21 @@ class GraphService {
     return (r.data['accounts'] as List).cast<Map<String, dynamic>>();
   }
 
-  Future<Map<String, dynamic>> media(String igUserId, {String? after}) async {
+  Future<Map<String, dynamic>> media(String igUserId, String pageId,
+      {String? after}) async {
     final r = await _dio.get('/api/ig/media', queryParameters: {
       'ig_user_id': igUserId,
+      'page_id': pageId,
       if (after != null) 'after': after,
     });
     return r.data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> comments(String mediaId, {String? after}) async {
+  Future<Map<String, dynamic>> comments(String mediaId, String pageId,
+      {String? after}) async {
     final r = await _dio.get('/api/ig/comments', queryParameters: {
       'media_id': mediaId,
+      'page_id': pageId,
       if (after != null) 'after': after,
     });
     return r.data as Map<String, dynamic>;

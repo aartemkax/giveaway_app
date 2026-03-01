@@ -795,6 +795,29 @@ def job_result(job_id):
     if err: return err
     return _job_http_response(job)
 
+def _debug_token(user_tok: str) -> dict:
+    app_token = f"{os.getenv('FB_APP_ID')}|{os.getenv('FB_APP_SECRET')}"
+    r = rq.get(f"{GRAPH}/debug_token", params={
+        "input_token": user_tok,
+        "access_token": app_token
+    }, timeout=15).json()
+    return (r or {}).get("data") or {}
+
+def _extract_target_page_ids(debug_data: dict) -> list[str]:
+    out = []
+    for gs in (debug_data.get("granular_scopes") or []):
+        if gs.get("scope") in ("pages_show_list", "pages_read_engagement"):
+            out.extend(gs.get("target_ids") or [])
+    # uniq + str
+    seen = set()
+    res = []
+    for x in out:
+        s = str(x)
+        if s not in seen:
+            seen.add(s)
+            res.append(s)
+    return res
+
 # ── FB Graph endpoints ────────────────────────────────────────────────────────
 @app.get("/api/ig/accounts")
 def ig_accounts():
@@ -808,41 +831,31 @@ def ig_accounts():
 
     try:
         pages = list_pages(user_tok)
-
-        # 1) НЕ маскуємо Graph errors
         if isinstance(pages, dict) and pages.get("error"):
             return jsonify({"error": "graph_error", "detail": pages.get("error")}), 502
 
         data = (pages.get("data") or []) if isinstance(pages, dict) else []
-        if not data:
-            # 2) Важлива розвилка: або немає Pages, або permission не granted
-            return jsonify({
-                "accounts": [],
-                "hint": "Graph /me/accounts returned 0 pages. "
-                        "Either: user has no FB Pages, or pages_show_list is not granted, "
-                        "or user has no tasks/access to the Page. "
-                        "Check /api/fb/_whoami or /api/fb/debug_pages."
-            }), 200
 
         rows = []
         debug_pages = []
 
+        # Нормальний шлях: /me/accounts
         for p in data:
             pid = p.get("id")
             pname = p.get("name")
             tasks = p.get("tasks")
-            page_tok = p.get("access_token")  # може бути None
+            page_tok = p.get("access_token")
 
             ig = (p.get("instagram_business_account")
                   or p.get("connected_instagram_account")
                   or {})
 
             debug_pages.append({
+                "source": "me/accounts",
                 "page_id": pid,
                 "page_name": pname,
                 "tasks": tasks,
                 "page_access_token_present": bool(page_tok),
-                "ig_block_present": bool(ig),
                 "ig_id_present": bool((ig or {}).get("id")),
             })
 
@@ -854,23 +867,55 @@ def ig_accounts():
                     "ig_username": ig.get("username"),
                 })
 
+        # Fallback: granular_scopes -> page_id -> /{page_id}?fields=...
+        if not rows:
+            dbg = _debug_token(user_tok)
+            page_ids = _extract_target_page_ids(dbg)
+
+            for pid in page_ids:
+                page_fields = (
+                    "id,name,"
+                    "instagram_business_account{id,username,name},"
+                    "connected_instagram_account{id,username}"
+                )
+                page = rq.get(f"{GRAPH}/{pid}", params={
+                    "fields": page_fields,
+                    "access_token": user_tok
+                }, timeout=20).json()
+
+                ig = (page.get("instagram_business_account")
+                      or page.get("connected_instagram_account")
+                      or {})
+
+                debug_pages.append({
+                    "source": "debug_token->page",
+                    "page_id": pid,
+                    "page_name": page.get("name"),
+                    "ig_id_present": bool((ig or {}).get("id")),
+                })
+
+                if (ig or {}).get("id"):
+                    rows.append({
+                        "page_id": pid,
+                        "page_name": page.get("name"),
+                        "ig_user_id": ig.get("id"),
+                        "ig_username": ig.get("username"),
+                    })
+
         if rows:
             session["ig_graph_settings"] = {
-        "page_id": rows[0]["page_id"],
-        "ig_user_id": rows[0]["ig_user_id"],
-        "ig_username": rows[0].get("ig_username"),
-        }
+                "page_id": rows[0]["page_id"],
+                "ig_user_id": rows[0]["ig_user_id"],
+                "ig_username": rows[0].get("ig_username"),
+            }
             session.modified = True
 
-        return jsonify({
-            "accounts": rows,
-            "pages_debug": debug_pages  # щоб одразу бачити, що саме прийшло з Graph
-        }), 200
+        return jsonify({"accounts": rows, "pages_debug": debug_pages}), 200
 
     except Exception as e:
         logger.exception("ig_accounts failed")
         return jsonify({"error": "internal_error", "detail": str(e)}), 500
-
+    
 @app.get("/api/ig/media")
 def ig_media_list():
     err = _ensure_fb_ready()
