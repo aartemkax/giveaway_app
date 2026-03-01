@@ -308,10 +308,13 @@ def job_view(job_id):
 # ── Debug ──────────────────────────────────────────────────────────────────────
 @app.route('/api/debug_session', methods=['GET'])
 def debug_session():
+    ig_graph = "ig_graph_settings" in session
+    ig_insta = "ig_settings" in session
+
     return jsonify({
         "session_keys": list(session.keys()),
-        "ig_settings_present": "ig_settings" in session,              # instagrapi
-        "ig_graph_settings_present": "ig_graph_settings" in session,  # graph
+        "ig_settings_present": ig_insta or ig_graph,         # <-- важливо
+        "ig_graph_settings_present": ig_graph,
         "fb_user_token_present": "fb_user_token" in session,
     }), 200
 
