@@ -1,5 +1,4 @@
-// lib/screens/ig_media_screen.dart
-import 'package:dio/dio.dart';
+//lib/screens/ig_comments_screen.dart
 import 'package:flutter/material.dart';
 import 'package:giveaway_app/services/graph_service.dart';
 
@@ -20,11 +19,11 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
   String _pageId = '';
   String _title = 'IG media';
 
-  List<Map<String, dynamic>> _items = [];
-
-  final _linkCtrl = TextEditingController();
+  final TextEditingController _linkCtrl = TextEditingController();
   bool _resolving = false;
   String? _resolveError;
+
+  List<Map<String, dynamic>> _items = [];
 
   @override
   void dispose() {
@@ -49,74 +48,6 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
     _load();
   }
 
-  String _normalizePermalink(String s) {
-    s = s.trim();
-    if (s.isEmpty) return s;
-    final uri = Uri.tryParse(s);
-    if (uri != null) {
-      final clean = uri.replace(query: '', fragment: '');
-      s = clean.toString();
-    }
-    if (!s.endsWith('/')) s += '/';
-    return s;
-  }
-
-  Future<void> _findByLink() async {
-    final raw = _linkCtrl.text;
-    final link = _normalizePermalink(raw);
-
-    if (link.isEmpty) {
-      setState(() => _resolveError = 'Встав посилання на пост.');
-      return;
-    }
-    if (_igUserId.isEmpty || _pageId.isEmpty) {
-      setState(() => _resolveError = 'Missing ig_user_id або page_id');
-      return;
-    }
-
-    setState(() {
-      _resolving = true;
-      _resolveError = null;
-    });
-
-    try {
-      final res = await GraphService().resolveMedia(
-        igUserId: _igUserId,
-        pageId: _pageId,
-        permalink: link,
-      );
-
-      final mediaId = (res['media_id'] ?? res['id'] ?? '').toString();
-      if (mediaId.isEmpty) {
-        setState(() => _resolveError = 'Resolve повернув пустий media_id');
-        return;
-      }
-
-      if (!mounted) return;
-      Navigator.pushNamed(
-        context,
-        '/ig_comments',
-        arguments: {
-          'media_id': mediaId,
-          'page_id': _pageId,
-        },
-      );
-    } on DioException catch (e) {
-      final code = e.response?.statusCode ?? 0;
-      if (code == 404) {
-        setState(
-            () => _resolveError = 'Пост не знайдено. Обери зі списку нижче.');
-      } else {
-        setState(() =>
-            _resolveError = 'Resolve error: ${e.message ?? code.toString()}');
-      }
-    } catch (e) {
-      setState(() => _resolveError = e.toString());
-    } finally {
-      if (mounted) setState(() => _resolving = false);
-    }
-  }
-
   Future<void> _load() async {
     if (_igUserId.isEmpty || _pageId.isEmpty) {
       setState(() {
@@ -138,11 +69,13 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
+      if (!mounted) return;
       setState(() {
         _items = data;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -150,112 +83,105 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
     }
   }
 
-  Widget _buildPasteLinkCard() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Paste Instagram link (permalink)'),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _linkCtrl,
-                autocorrect: false,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _resolving ? null : _findByLink(),
-                decoration: const InputDecoration(
-                  hintText: 'https://www.instagram.com/p/XXXX/',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _resolving ? null : _findByLink,
-                      icon: _resolving
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.search),
-                      label: Text(_resolving ? 'Finding...' : 'Find'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: _resolving
-                        ? null
-                        : () {
-                            _linkCtrl.clear();
-                            setState(() => _resolveError = null);
-                          },
-                    icon: const Icon(Icons.clear),
-                    tooltip: 'Clear',
-                  )
-                ],
-              ),
-              if (_resolveError != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _resolveError!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
+  String _normalizePermalink(String s) {
+    var x = s.trim();
+    if (x.startsWith('/')) x = 'https:$x';
+    if (!x.startsWith('http')) x = 'https://$x';
+    if (!x.endsWith('/')) x = '$x/';
+    return x;
   }
 
-  Widget _buildList() {
-    if (_items.isEmpty) {
-      return const Center(child: Text('Немає постів.'));
+  Future<void> _findByLink() async {
+    final raw = _linkCtrl.text.trim();
+    if (raw.isEmpty) return;
+
+    setState(() {
+      _resolving = true;
+      _resolveError = null;
+    });
+
+    try {
+      final permalink = _normalizePermalink(raw);
+
+      final item = await GraphService().resolveMedia(
+        igUserId: _igUserId,
+        pageId: _pageId,
+        permalink: permalink,
+      );
+
+      final mediaId = (item['id'] ?? '').toString();
+      if (mediaId.isEmpty) {
+        throw Exception('Resolve returned empty media_id');
+      }
+
+      if (!mounted) return;
+      Navigator.pushNamed(
+        context,
+        '/ig_comments',
+        arguments: {'media_id': mediaId, 'page_id': _pageId},
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _resolveError = 'Resolve error: $e');
+    } finally {
+      if (mounted) setState(() => _resolving = false);
     }
+  }
 
-    return ListView.separated(
-      itemCount: _items.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, i) {
-        final m = _items[i];
-        final mediaId = (m['id'] ?? '').toString();
-        final img = (m['media_url'] ?? '').toString();
-        final comments = (m['comments_count'] ?? 0).toString();
-        final likes = (m['like_count'] ?? 0).toString();
-
-        return ListTile(
-          leading: img.isNotEmpty
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: Image.network(
-                    img,
-                    width: 52,
-                    height: 52,
-                    fit: BoxFit.cover,
+  Widget _resolveCard() {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Paste Instagram link (permalink)',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _linkCtrl,
+              decoration: const InputDecoration(
+                hintText: 'https://www.instagram.com/p/XXXX/',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _resolving ? null : _findByLink,
+                    icon: const Icon(Icons.search),
+                    label: const Text('Find'),
                   ),
-                )
-              : const SizedBox(width: 52, height: 52),
-          title: Text('media_id: $mediaId'),
-          subtitle: Text('comments: $comments • likes: $likes'),
-          onTap: () {
-            Navigator.pushNamed(
-              context,
-              '/ig_comments',
-              arguments: {
-                'media_id': mediaId,
-                'page_id': _pageId,
-              },
-            );
-          },
-        );
-      },
+                ),
+                const SizedBox(width: 10),
+                IconButton(
+                  onPressed: _resolving
+                      ? null
+                      : () {
+                          setState(() {
+                            _linkCtrl.clear();
+                            _resolveError = null;
+                          });
+                        },
+                  icon: const Icon(Icons.clear),
+                ),
+              ],
+            ),
+            if (_resolveError != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _resolveError!,
+                style: const TextStyle(color: Colors.red),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -265,10 +191,7 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
       appBar: AppBar(
         title: Text(_title),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-          )
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
         ],
       ),
       body: _loading
@@ -277,9 +200,49 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
               ? Center(child: Text(_error!, textAlign: TextAlign.center))
               : Column(
                   children: [
-                    _buildPasteLinkCard(),
+                    _resolveCard(),
                     const Divider(height: 1),
-                    Expanded(child: _buildList()),
+                    Expanded(
+                      child: ListView.separated(
+                        itemCount: _items.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final m = _items[i];
+                          final mediaId = (m['id'] ?? '').toString();
+                          final img = (m['media_url'] ?? '').toString();
+                          final comments =
+                              (m['comments_count'] ?? 0).toString();
+                          final likes = (m['like_count'] ?? 0).toString();
+
+                          return ListTile(
+                            leading: img.isNotEmpty
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Image.network(
+                                      img,
+                                      width: 52,
+                                      height: 52,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  )
+                                : const SizedBox(width: 52, height: 52),
+                            title: Text('media_id: $mediaId'),
+                            subtitle:
+                                Text('comments: $comments • likes: $likes'),
+                            onTap: () {
+                              Navigator.pushNamed(
+                                context,
+                                '/ig_comments',
+                                arguments: {
+                                  'media_id': mediaId,
+                                  'page_id': _pageId,
+                                },
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
                   ],
                 ),
     );

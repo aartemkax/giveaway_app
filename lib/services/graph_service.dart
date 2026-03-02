@@ -44,6 +44,23 @@ class GraphService {
     return r.data as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> runDraw({
+    required String mediaId,
+    required String pageId,
+    required int winners,
+    Map<String, dynamic>? filter,
+    String? seed,
+  }) async {
+    final r = await _dio.post('/api/ig/run_draw', data: {
+      'media_id': mediaId,
+      'page_id': pageId,
+      'winners': winners,
+      if (seed != null && seed.trim().isNotEmpty) 'seed': seed.trim(),
+      if (filter != null) 'filter': filter,
+    });
+    return r.data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> comments(String mediaId, String pageId,
       {String? after}) async {
     final r = await _dio.get('/api/ig/comments', queryParameters: {
