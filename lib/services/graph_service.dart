@@ -17,7 +17,8 @@ class GraphService {
 
   Future<List<Map<String, dynamic>>> igAccounts() async {
     final r = await _dio.get('/api/ig/accounts');
-    return (r.data['accounts'] as List).cast<Map<String, dynamic>>();
+    final list = (r.data['accounts'] as List? ?? []);
+    return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   Future<Map<String, dynamic>> media(String igUserId, String pageId,

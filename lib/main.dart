@@ -12,6 +12,8 @@ import 'screens/login/participants_screen.dart';
 import 'screens/password_login_screen.dart';
 import 'screens/login/fb_oauth_screen.dart';
 import 'screens/fb_home_screen.dart';
+import 'screens/ig_media_screen.dart';
+import 'screens/ig_comments_screen.dart';
 
 final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
 
@@ -110,6 +112,8 @@ class MyApp extends ConsumerWidget {
                 ),
             '/fb_oauth': (_) => const FbOAuthScreen(),
             '/fb_home': (_) => const FbHomeScreen(),
+            '/ig_media': (_) => const IgMediaScreen(),
+            '/ig_comments': (_) => const IgCommentsScreen(),
           },
         );
       },
