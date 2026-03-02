@@ -14,17 +14,19 @@ class _FbHomeScreenState extends State<FbHomeScreen> {
   bool _loading = false;
   String? _error;
 
+  List<Map<String, dynamic>> _accounts = [];
+
   Future<void> _logout() async {
     setState(() {
       _loading = true;
       _error = null;
+      _accounts = [];
     });
 
     try {
-      // чистимо серверну сесію
       await ApiClient().dio.post('/api/logout');
     } catch (_) {
-      // ігноруємо: logout має бути best-effort
+      // best-effort
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -41,39 +43,36 @@ class _FbHomeScreenState extends State<FbHomeScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _accounts = [];
     });
 
     try {
       final dio = ApiClient().dio;
 
-      // 1) Перевіряємо чи є FB token у server session
       final dbg1 = await dio.get('/api/debug_session');
       final m1 =
           (dbg1.data is Map) ? Map<String, dynamic>.from(dbg1.data as Map) : {};
 
       final fbOk = m1['fb_user_token_present'] == true;
-      final igOk = m1['ig_settings_present'] == true;
 
       if (!fbOk) {
         await _logout();
         return;
       }
 
-      // 2) Якщо IG settings ще не збережені — ініціалізуємо їх
-      if (!igOk) {
-        await dio.get('/api/ig/accounts');
+      final acc = await dio.get('/api/ig/accounts');
+      final data =
+          (acc.data is Map) ? Map<String, dynamic>.from(acc.data as Map) : {};
 
-        final dbg2 = await dio.get('/api/debug_session');
-        final m2 = (dbg2.data is Map)
-            ? Map<String, dynamic>.from(dbg2.data as Map)
-            : {};
+      final accounts = (data['accounts'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
 
-        final igOk2 = m2['ig_settings_present'] == true;
-        if (!igOk2) {
-          _error = 'FB OAuth OK, але IG не знайдено/не прив’язано.\n'
-              'Перевір: FB Page + прив’язаний IG business/creator + права доступу.\n'
-              'Ендпоінт /api/ig/accounts повернув 0 або не зберіг ig_settings в session.';
-        }
+      if (accounts.isEmpty) {
+        _error = 'FB OAuth OK, але /api/ig/accounts повернув пусто.\n'
+            'Перевір: FB Page + прив’язаний IG business/creator + права доступу.';
+      } else {
+        _accounts = accounts;
       }
     } catch (e) {
       _error = e.toString();
@@ -104,11 +103,34 @@ class _FbHomeScreenState extends State<FbHomeScreen> {
       body: Center(
         child: _loading
             ? const CircularProgressIndicator()
-            : Text(
-                _error ??
-                    'FB OAuth OK. Далі роби запити в /api/ig/* (accounts/media/comments).',
-                textAlign: TextAlign.center,
-              ),
+            : (_error != null)
+                ? Text(_error!, textAlign: TextAlign.center)
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: _accounts.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final a = _accounts[i];
+                      final pageName = (a['page_name'] ?? '').toString();
+                      final igUsername = (a['ig_username'] ?? '').toString();
+
+                      return ListTile(
+                        title: Text(pageName),
+                        subtitle: Text(igUsername),
+                        onTap: () {
+                          Navigator.pushNamed(
+                            context,
+                            '/ig_media',
+                            arguments: {
+                              'ig_user_id': a['ig_user_id'],
+                              'page_id': a['page_id'],
+                              'ig_username': igUsername,
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
       ),
     );
   }
