@@ -31,6 +31,19 @@ class GraphService {
     return r.data as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> resolveMedia({
+    required String igUserId,
+    required String pageId,
+    required String permalink,
+  }) async {
+    final r = await _dio.get('/api/ig/resolve_media', queryParameters: {
+      'ig_user_id': igUserId,
+      'page_id': pageId,
+      'permalink': permalink,
+    });
+    return r.data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> comments(String mediaId, String pageId,
       {String? after}) async {
     final r = await _dio.get('/api/ig/comments', queryParameters: {

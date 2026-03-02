@@ -30,6 +30,7 @@ from instagrapi.exceptions import (
 
 from device_emulator import emulate_device
 from tasks import fetch_participants_task
+from urllib.parse import urlparse
 
 # ── Init & logging ─────────────────────────────────────────────────────────────
 load_dotenv()  # ВАЖЛИВО: до імпорту fb_graph
@@ -93,6 +94,36 @@ queue = Queue(connection=redis_conn)
 # ── Helpers ────────────────────────────────────────────────────────────────────
 URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|tv)/[^/]+/?$")
 LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
+PERMALINK_PATH_RE = re.compile(r"^/(p|reel|tv)/[^/]+/?$")
+
+def _normalize_permalink(url: str) -> str | None:
+    if not url:
+        return None
+    url = url.strip()
+    if not url:
+        return None
+
+    # allow paste without scheme
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url.lstrip("/")
+
+    p = urlparse(url)
+    host = (p.netloc or "").lower()
+
+    # accept only instagram hosts
+    if host in ("instagram.com", "www.instagram.com"):
+        host = "www.instagram.com"
+    else:
+        return None
+
+    path = p.path or ""
+    if not PERMALINK_PATH_RE.match(path):
+        return None
+
+    if not path.endswith("/"):
+        path += "/"
+
+    return f"https://{host}{path}"
 
 @app.before_request
 def _log_request():
@@ -955,6 +986,80 @@ def ig_media_list():
     except Exception as e:
         logger.exception("ig_media_list failed")
         return jsonify({"error": "internal_error", "detail": str(e)}), 500
+
+@app.get("/api/ig/resolve_media")
+def ig_resolve_media():
+    err = _ensure_fb_ready()
+    if err:
+        return jsonify(err[0]), err[1]
+
+    user_tok = _require_fb()
+    if not user_tok:
+        return _json_nostore({"error": "login_required", "detail": "fb"}, 401)
+
+    ig_user_id = (request.args.get("ig_user_id") or "").strip()
+    page_id    = (request.args.get("page_id") or "").strip()
+    permalink  = (request.args.get("permalink") or "").strip()
+
+    if not ig_user_id:
+        return _json_nostore({"error": "validation_error", "detail": "ig_user_id required"}, 400)
+    if not page_id:
+        return _json_nostore({"error": "validation_error", "detail": "page_id required"}, 400)
+
+    norm = _normalize_permalink(permalink)
+    if not norm:
+        return _json_nostore({"error": "validation_error", "detail": "invalid permalink"}, 400)
+
+    # optional cache (works if redis is available)
+    cache_key = f"resolve:{ig_user_id}:{page_id}:{norm}"
+    try:
+        cached = redis_conn.get(cache_key)
+        if cached:
+            return _json_nostore(json.loads(cached), 200)
+    except Exception:
+        pass
+
+    # resolve page access token
+    access_token = user_tok
+    try:
+        acc = rq.get(
+            f"{GRAPH}/{page_id}",
+            params={"fields": "access_token", "access_token": user_tok},
+            timeout=20
+        ).json()
+        access_token = acc.get("access_token") or access_token
+    except Exception:
+        pass
+
+    max_pages = int(os.getenv("RESOLVE_MAX_PAGES", "80"))
+    after = None
+
+    for _ in range(max_pages):
+        m = ig_media(ig_user_id, access_token, limit=50, after=after)  # uses your existing fb_graph.ig_media
+        for item in (m.get("data") or []):
+            item_link = _normalize_permalink(item.get("permalink") or "")
+            if item_link == norm:
+                out = {
+                    "media_id": item.get("id"),
+                    "permalink": item.get("permalink"),
+                    "comments_count": item.get("comments_count"),
+                    "like_count": item.get("like_count"),
+                    "media_type": item.get("media_type"),
+                    "media_url": item.get("media_url"),
+                    "timestamp": item.get("timestamp"),
+                }
+                try:
+                    redis_conn.setex(cache_key, 3 * 24 * 3600, json.dumps(out))
+                except Exception:
+                    pass
+                return _json_nostore(out, 200)
+
+        after = (((m.get("paging") or {}).get("cursors") or {}).get("after"))
+        if not after:
+            break
+        time.sleep(0.1)
+
+    return _json_nostore({"error": "not_found", "detail": "media not found in IG media list"}, 404)
     
 @app.get("/api/ig/comments")
 def ig_comments_list():
