@@ -1040,14 +1040,15 @@ def ig_resolve_media():
             item_link = _normalize_permalink(item.get("permalink") or "")
             if item_link == norm:
                 out = {
-                    "media_id": item.get("id"),
+                    "id": item.get("id"),           
+                    "media_id": item.get("id"),     
                     "permalink": item.get("permalink"),
                     "comments_count": item.get("comments_count"),
                     "like_count": item.get("like_count"),
                     "media_type": item.get("media_type"),
                     "media_url": item.get("media_url"),
                     "timestamp": item.get("timestamp"),
-                }
+                    }
                 try:
                     redis_conn.setex(cache_key, 3 * 24 * 3600, json.dumps(out))
                 except Exception:

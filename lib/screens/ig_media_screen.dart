@@ -109,7 +109,7 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
         permalink: permalink,
       );
 
-      final mediaId = (item['id'] ?? '').toString();
+      final mediaId = (item['media_id'] ?? item['id'] ?? '').toString();
       if (mediaId.isEmpty) {
         throw Exception('Resolve returned empty media_id');
       }
