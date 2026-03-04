@@ -1,6 +1,7 @@
 //lib/screens/ig_comments_screen.dart
 import 'package:flutter/material.dart';
 import 'package:giveaway_app/services/graph_service.dart';
+import 'package:dio/dio.dart';
 
 class IgMediaScreen extends StatefulWidget {
   const IgMediaScreen({super.key});
@@ -85,8 +86,19 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
 
   String _normalizePermalink(String s) {
     var x = s.trim();
-    if (x.startsWith('/')) x = 'https:$x';
-    if (!x.startsWith('http')) x = 'https://$x';
+
+    // прибрати leading слеші типу /www.instagram.com/...
+    x = x.replaceFirst(RegExp(r'^/+'), '');
+
+    // якщо без схеми
+    if (!x.startsWith('http://') && !x.startsWith('https://')) {
+      x = 'https://$x';
+    }
+
+    // Instagram інколи дає /reels/..., а в Graph частіше /reel/...
+    x = x.replaceFirst('instagram.com/reels/', 'instagram.com/reel/');
+    x = x.replaceFirst('www.instagram.com/reels/', 'www.instagram.com/reel/');
+
     if (!x.endsWith('/')) x = '$x/';
     return x;
   }
@@ -109,6 +121,7 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
         permalink: permalink,
       );
 
+      // ВАЖЛИВО: бекенд повертає media_id
       final mediaId = (item['media_id'] ?? item['id'] ?? '').toString();
       if (mediaId.isEmpty) {
         throw Exception('Resolve returned empty media_id');
@@ -120,6 +133,19 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
         '/ig_comments',
         arguments: {'media_id': mediaId, 'page_id': _pageId},
       );
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (!mounted) return;
+
+      if (code == 400) {
+        setState(() => _resolveError =
+            'Bad link. Paste Instagram post/reel link like https://www.instagram.com/p/.../');
+      } else if (code == 404) {
+        setState(() => _resolveError =
+            'Not found in this account media list. Maybe it is not your post / too old / not accessible.');
+      } else {
+        setState(() => _resolveError = 'Resolve error: ${e.message}');
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _resolveError = 'Resolve error: $e');

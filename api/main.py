@@ -92,9 +92,9 @@ redis_conn = Redis.from_url(redis_url, **_tls)
 queue = Queue(connection=redis_conn)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|tv)/[^/]+/?$")
+URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|reels|tv)/[^/]+/?$")
 LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
-PERMALINK_PATH_RE = re.compile(r"^/(p|reel|tv)/[^/]+/?$")
+PERMALINK_PATH_RE = re.compile(r"^/(p|reel|reels|tv)/[^/]+/?$")
 
 def _normalize_permalink(url: str) -> str | None:
     if not url:

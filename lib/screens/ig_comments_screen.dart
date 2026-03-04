@@ -1,5 +1,8 @@
-// lib/screens/ig_media_screen.dart
+//lib/screens/ig_comments_screen.dart
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:giveaway_app/services/graph_service.dart';
 
 class IgCommentsScreen extends StatefulWidget {
@@ -11,6 +14,7 @@ class IgCommentsScreen extends StatefulWidget {
 
 class _IgCommentsScreenState extends State<IgCommentsScreen> {
   bool _loading = true;
+  bool _drawing = false;
   String? _error;
 
   bool _inited = false;
@@ -19,6 +23,43 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
   String _pageId = '';
   List<Map<String, dynamic>> _comments = [];
 
+  // ---------- helpers for copy ----------
+  String _csvEscape(String v) {
+    final s = v.replaceAll('"', '""');
+    final needQuotes = s.contains(',') ||
+        s.contains('\n') ||
+        s.contains('\r') ||
+        s.contains('"');
+    return needQuotes ? '"$s"' : s;
+  }
+
+  String _winnersPlain(List<Map<String, dynamic>> winners) {
+    return winners.map((w) {
+      final u = (w['username'] ?? '').toString();
+      final id = (w['id'] ?? '').toString();
+      return '@$u (comment_id: $id)';
+    }).join('\n');
+  }
+
+  String _winnersCsv(List<Map<String, dynamic>> winners) {
+    final b = StringBuffer();
+    b.writeln('username,comment_id');
+    for (final w in winners) {
+      final u = (w['username'] ?? '').toString();
+      final id = (w['id'] ?? '').toString();
+      b.writeln('${_csvEscape(u)},${_csvEscape(id)}');
+    }
+    return b.toString();
+  }
+
+  Future<void> _copyText(String label, String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('$label copied')));
+  }
+
+  // ---------- lifecycle ----------
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -53,11 +94,13 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
+      if (!mounted) return;
       setState(() {
         _comments = items;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -65,6 +108,247 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
     }
   }
 
+  // ---------- draw UI ----------
+  Future<void> _openDrawSheet() async {
+    if (_drawing) return;
+
+    final winnersCtrl = TextEditingController(text: '1');
+    final hashtagsCtrl = TextEditingController(); // tag1, #tag2
+    final denylistCtrl = TextEditingController(); // user1, user2
+    final minMentionsCtrl = TextEditingController(text: '0');
+    String uniqueBy = 'user'; // user|comment|both
+
+    final res = await showModalBottomSheet<Map<String, dynamic>?>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: StatefulBuilder(
+            builder: (ctx, setLocal) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Draw settings',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: winnersCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Winners count',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: uniqueBy,
+                    decoration: const InputDecoration(
+                      labelText: 'Unique by',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'user',
+                        child: Text('User (1 ticket per user)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'comment',
+                        child: Text('Comment (each comment is a ticket)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'both',
+                        child: Text('Both (unique by user+comment)'),
+                      ),
+                    ],
+                    onChanged: (v) => setLocal(() => uniqueBy = v ?? 'user'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: minMentionsCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Min @mentions (0..)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: hashtagsCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Required hashtags (comma separated)',
+                      hintText: 'e.g. giveaway, #giveaway2026',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: denylistCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Denylist usernames (comma separated)',
+                      hintText: 'e.g. spam1, spam2',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final winners =
+                            int.tryParse(winnersCtrl.text.trim()) ?? 0;
+                        if (winners < 1) {
+                          Navigator.pop(
+                              ctx, {'_error': 'Winners count must be >= 1'});
+                          return;
+                        }
+
+                        final minMentions =
+                            int.tryParse(minMentionsCtrl.text.trim()) ?? 0;
+
+                        final requiredHashtags = hashtagsCtrl.text
+                            .split(',')
+                            .map((s) => s.trim())
+                            .where((s) => s.isNotEmpty)
+                            .map((s) {
+                          final low = s.toLowerCase();
+                          return low.startsWith('#') ? low : '#$low';
+                        }).toList();
+
+                        final denylist = denylistCtrl.text
+                            .split(',')
+                            .map((s) => s.trim())
+                            .where((s) => s.isNotEmpty)
+                            .toList();
+
+                        Navigator.pop(ctx, {
+                          'winners': winners,
+                          'filter': {
+                            'unique_by': uniqueBy,
+                            'min_mentions': minMentions,
+                            'required_hashtags': requiredHashtags,
+                            'denylist': denylist,
+                          }
+                        });
+                      },
+                      child: const Text('Run draw'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    if (res == null) return;
+
+    if (res['_error'] != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(res['_error'].toString())));
+      return;
+    }
+
+    final winnersCount = res['winners'] as int;
+    final filter = (res['filter'] as Map?)?.cast<String, dynamic>();
+    await _runDraw(winnersCount: winnersCount, filter: filter);
+  }
+
+  Future<void> _runDraw({
+    required int winnersCount,
+    Map<String, dynamic>? filter,
+  }) async {
+    setState(() => _drawing = true);
+
+    try {
+      final r = await GraphService().runDraw(
+        mediaId: _mediaId,
+        pageId: _pageId,
+        winners: winnersCount,
+        filter: filter,
+      );
+
+      final audit =
+          (r['audit'] is Map) ? Map<String, dynamic>.from(r['audit']) : {};
+      final winners = (r['winners'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+
+      if (!mounted) return;
+
+      final seed = (audit['seed'] ?? '').toString();
+      final poolHash = (audit['pool_hash'] ?? '').toString();
+      final plain = _winnersPlain(winners);
+      final csv = _winnersCsv(winners);
+      final auditJson = const JsonEncoder.withIndent('  ').convert(audit);
+
+      await showDialog(
+        context: context,
+        builder: (_) {
+          return AlertDialog(
+            title: const Text('Winners'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Fetched: ${audit['fetched_count'] ?? '-'}'),
+                  Text('Filtered: ${audit['filtered_count'] ?? '-'}'),
+                  Text('Unique by: ${audit['unique_by'] ?? '-'}'),
+                  if (seed.isNotEmpty) Text('Seed: $seed'),
+                  if (poolHash.isNotEmpty) Text('Pool hash: $poolHash'),
+                  const SizedBox(height: 12),
+                  ...winners.map((w) {
+                    final u = (w['username'] ?? '').toString();
+                    final id = (w['id'] ?? '').toString();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text('@$u  (comment_id: $id)'),
+                    );
+                  }),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => _copyText('Winners', plain),
+                child: const Text('Copy winners'),
+              ),
+              TextButton(
+                onPressed: () => _copyText('Winners CSV', csv),
+                child: const Text('Copy CSV'),
+              ),
+              TextButton(
+                onPressed: () => _copyText('Audit JSON', auditJson),
+                child: const Text('Copy audit'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Draw error: $e')));
+    } finally {
+      if (mounted) setState(() => _drawing = false);
+    }
+  }
+
+  // ---------- UI ----------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -72,9 +356,14 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
         title: Text('Comments • $_mediaId'),
         actions: [
           IconButton(
-            onPressed: _load,
+            onPressed: _drawing ? null : _openDrawSheet,
+            icon: const Icon(Icons.casino),
+            tooltip: 'Draw',
+          ),
+          IconButton(
+            onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
-          )
+          ),
         ],
       ),
       body: _loading
