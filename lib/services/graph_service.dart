@@ -50,11 +50,13 @@ class GraphService {
     required int winners,
     Map<String, dynamic>? filter,
     String? seed,
+    bool uniqueWinners = true,
   }) async {
     final r = await _dio.post('/api/ig/run_draw', data: {
       'media_id': mediaId,
       'page_id': pageId,
       'winners': winners,
+      'unique_winners': uniqueWinners,
       if (seed != null && seed.trim().isNotEmpty) 'seed': seed.trim(),
       if (filter != null) 'filter': filter,
     });

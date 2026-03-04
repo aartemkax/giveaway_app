@@ -21,6 +21,7 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
 
   String _mediaId = '';
   String _pageId = '';
+  String _igUsername = '';
   List<Map<String, dynamic>> _comments = [];
 
   // ---------- helpers for copy ----------
@@ -67,9 +68,9 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
     _inited = true;
 
     final args = (ModalRoute.of(context)?.settings.arguments as Map?) ?? {};
+    _igUsername = (args['ig_username'] ?? '').toString();
     _mediaId = (args['media_id'] ?? '').toString();
     _pageId = (args['page_id'] ?? '').toString();
-
     _load();
   }
 
@@ -113,10 +114,13 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
     if (_drawing) return;
 
     final winnersCtrl = TextEditingController(text: '1');
-    final hashtagsCtrl = TextEditingController(); // tag1, #tag2
-    final denylistCtrl = TextEditingController(); // user1, user2
+    final hashtagsCtrl = TextEditingController();
+    final denylistCtrl = TextEditingController();
     final minMentionsCtrl = TextEditingController(text: '0');
+
     String uniqueBy = 'user'; // user|comment|both
+    bool uniqueWinners = true; // важливо для режиму "comment"
+    bool excludeMe = false;
 
     final res = await showModalBottomSheet<Map<String, dynamic>?>(
       context: context,
@@ -139,6 +143,7 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 12),
+
                   TextField(
                     controller: winnersCtrl,
                     keyboardType: TextInputType.number,
@@ -148,10 +153,11 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+
                   DropdownButtonFormField<String>(
                     value: uniqueBy,
                     decoration: const InputDecoration(
-                      labelText: 'Unique by',
+                      labelText: 'Tickets mode',
                       border: OutlineInputBorder(),
                     ),
                     items: const [
@@ -171,6 +177,28 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                     onChanged: (v) => setLocal(() => uniqueBy = v ?? 'user'),
                   ),
                   const SizedBox(height: 12),
+
+                  // Режим 2: більше коментів = більше шансів, але 1 перемога на юзера
+                  if (uniqueBy == 'comment') ...[
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Unique winners (max 1 win per user)'),
+                      value: uniqueWinners,
+                      onChanged: (v) => setLocal(() => uniqueWinners = v),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+
+                  if (_igUsername.isNotEmpty) ...[
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('Exclude me (@$_igUsername)'),
+                      value: excludeMe,
+                      onChanged: (v) => setLocal(() => excludeMe = v),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+
                   TextField(
                     controller: minMentionsCtrl,
                     keyboardType: TextInputType.number,
@@ -180,6 +208,7 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+
                   TextField(
                     controller: hashtagsCtrl,
                     decoration: const InputDecoration(
@@ -189,6 +218,7 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+
                   TextField(
                     controller: denylistCtrl,
                     decoration: const InputDecoration(
@@ -198,6 +228,7 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
@@ -228,8 +259,13 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                             .where((s) => s.isNotEmpty)
                             .toList();
 
+                        if (excludeMe && _igUsername.isNotEmpty) {
+                          denylist.add(_igUsername);
+                        }
+
                         Navigator.pop(ctx, {
                           'winners': winners,
+                          'unique_winners': uniqueWinners,
                           'filter': {
                             'unique_by': uniqueBy,
                             'min_mentions': minMentions,
@@ -261,12 +297,19 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
 
     final winnersCount = res['winners'] as int;
     final filter = (res['filter'] as Map?)?.cast<String, dynamic>();
-    await _runDraw(winnersCount: winnersCount, filter: filter);
+    final uniqueWinnersRes = (res['unique_winners'] as bool?) ?? true;
+
+    await _runDraw(
+      winnersCount: winnersCount,
+      filter: filter,
+      uniqueWinners: uniqueWinnersRes,
+    );
   }
 
   Future<void> _runDraw({
     required int winnersCount,
     Map<String, dynamic>? filter,
+    required bool uniqueWinners,
   }) async {
     setState(() => _drawing = true);
 
@@ -276,6 +319,7 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
         pageId: _pageId,
         winners: winnersCount,
         filter: filter,
+        uniqueWinners: uniqueWinners,
       );
 
       final audit =

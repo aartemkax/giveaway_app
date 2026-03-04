@@ -262,6 +262,10 @@ class _IgMediaScreenState extends State<IgMediaScreen> {
                                 arguments: {
                                   'media_id': mediaId,
                                   'page_id': _pageId,
+                                  'ig_username': (ModalRoute.of(context)
+                                          ?.settings
+                                          .arguments as Map?)?['ig_username'] ??
+                                      '',
                                 },
                               );
                             },

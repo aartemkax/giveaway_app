@@ -799,6 +799,35 @@ def _pick_winners(users, k, seed_str):
     # Повертаємо перші k елементів у вигляді списку словників
     return pool[:k]
 
+def _pick_winners_unique_users(rows, k, seed_str):
+    seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
+    rnd = random.Random(seed)
+
+    pool = sorted(
+        rows,
+        key=lambda r: (
+            (r.get("username") or "").strip().lower(),
+            (r.get("id") or "").strip()
+        )
+    )
+    rnd.shuffle(pool)
+
+    winners = []
+    seen_users = set()
+
+    for r in pool:
+        u = (r.get("username") or "").strip().lower()
+        if not u:
+            continue
+        if u in seen_users:
+            continue
+        winners.append(r)
+        seen_users.add(u)
+        if len(winners) >= k:
+            break
+
+    return winners
+
 def _get_job_or_404(job_id):
     job = queue.fetch_job(job_id)
     if not job:
@@ -1229,7 +1258,11 @@ def ig_run_draw():
     # 3) draw (детерміновано по seed)
     winners_count = int(data.get("winners") or 1)
     seed_str = data.get("seed") or f"giveaway-{int(time.time())}-{media_id}"
-    winners = _pick_winners(filtered, winners_count, seed_str)
+    unique_winners = bool(data.get("unique_winners", True))
+    if unique_winners:
+        winners = _pick_winners_unique_users(filtered, winners_count, seed_str)
+    else:
+        winners = _pick_winners(filtered, winners_count, seed_str)
 
     # 4) audit/прозорість
     audit = {
@@ -1246,6 +1279,9 @@ def ig_run_draw():
         "denylist": f.get("denylist") or [],
         # щоб можна було перевірити результат — даємо хеш пулу
         "pool_hash": hashlib.sha256(json.dumps(filtered, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
+        "unique_winners": unique_winners,
+        "unique_users_in_pool": len({(r.get("username") or "").strip().lower() for r in filtered if (r.get("username") or "").strip()}),
+        "winners_returned": len(winners),
     }
 
     return jsonify({
