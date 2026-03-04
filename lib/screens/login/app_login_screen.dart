@@ -62,7 +62,8 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
       return;
     }
 
-    final res = await Navigator.of(context).pushNamed('/fb_oauth');
+    final res = await Navigator.of(context)
+        .pushNamedAndRemoveUntil('/fb_oauth', (_) => false);
 
     if (!mounted) return;
 

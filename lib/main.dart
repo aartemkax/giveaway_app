@@ -69,53 +69,33 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final locale = ref.watch(localeProvider);
-    final authAsync = ref.watch(authStateProvider);
 
-    return authAsync.when(
-      loading: () => const MaterialApp(
-        home: Scaffold(body: Center(child: CircularProgressIndicator())),
-      ),
-      error: (e, _) => MaterialApp(
-        home: Scaffold(body: Center(child: Text('Init error: $e'))),
-      ),
-      data: (st) {
-        final Widget home = !st.isLoggedIn
-            ? AppLoginScreen(
-                onLocaleChanged: (l) =>
-                    ref.read(localeProvider.notifier).state = l,
-              )
-            : (st.authMethod == 'fb'
-                ? const FbHomeScreen()
-                : ParticipantsScreen(
-                    onLocaleChanged: (l) =>
-                        ref.read(localeProvider.notifier).state = l,
-                  ));
+    return MaterialApp(
+      title: 'Giveaway App',
+      locale: locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
 
-        return MaterialApp(
-          title: 'Giveaway App',
-          locale: locale,
-          supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          home: home,
-          routes: {
-            '/login': (_) => AppLoginScreen(
-                  onLocaleChanged: (l) =>
-                      ref.read(localeProvider.notifier).state = l,
-                ),
-            '/participants': (_) => ParticipantsScreen(
-                  onLocaleChanged: (l) =>
-                      ref.read(localeProvider.notifier).state = l,
-                ),
-            '/password_login': (_) => PasswordLoginScreen(
-                  onLocaleChanged: (l) =>
-                      ref.read(localeProvider.notifier).state = l,
-                ),
-            '/fb_oauth': (_) => const FbOAuthScreen(),
-            '/fb_home': (_) => const FbHomeScreen(),
-            '/ig_media': (_) => const IgMediaScreen(),
-            '/ig_comments': (_) => const IgCommentsScreen(),
-          },
-        );
+      // ключове
+      initialRoute: '/login',
+
+      routes: {
+        '/login': (_) => AppLoginScreen(
+              onLocaleChanged: (l) =>
+                  ref.read(localeProvider.notifier).state = l,
+            ),
+        '/participants': (_) => ParticipantsScreen(
+              onLocaleChanged: (l) =>
+                  ref.read(localeProvider.notifier).state = l,
+            ),
+        '/password_login': (_) => PasswordLoginScreen(
+              onLocaleChanged: (l) =>
+                  ref.read(localeProvider.notifier).state = l,
+            ),
+        '/fb_oauth': (_) => const FbOAuthScreen(),
+        '/fb_home': (_) => const FbHomeScreen(),
+        '/ig_media': (_) => const IgMediaScreen(),
+        '/ig_comments': (_) => const IgCommentsScreen(),
       },
     );
   }
