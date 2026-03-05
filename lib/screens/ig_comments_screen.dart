@@ -34,21 +34,24 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
     return needQuotes ? '"$s"' : s;
   }
 
+  // ---------- helpers for copy ----------
   String _winnersPlain(List<Map<String, dynamic>> winners) {
     return winners.map((w) {
       final u = (w['username'] ?? '').toString();
-      final id = (w['id'] ?? '').toString();
-      return '@$u (comment_id: $id)';
+      final t = (w['text'] ?? '').toString().trim();
+      if (t.isEmpty) return '@$u';
+      return '@$u — $t';
     }).join('\n');
   }
 
   String _winnersCsv(List<Map<String, dynamic>> winners) {
     final b = StringBuffer();
-    b.writeln('username,comment_id');
+    b.writeln('username,text,timestamp');
     for (final w in winners) {
       final u = (w['username'] ?? '').toString();
-      final id = (w['id'] ?? '').toString();
-      b.writeln('${_csvEscape(u)},${_csvEscape(id)}');
+      final t = (w['text'] ?? '').toString();
+      final ts = (w['timestamp'] ?? '').toString();
+      b.writeln('${_csvEscape(u)},${_csvEscape(t)},${_csvEscape(ts)}');
     }
     return b.toString();
   }
@@ -333,8 +336,6 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
 
       if (!mounted) return;
 
-      final seed = (audit['seed'] ?? '').toString();
-      final poolHash = (audit['pool_hash'] ?? '').toString();
       final plain = _winnersPlain(winners);
       final csv = _winnersCsv(winners);
       final auditJson = const JsonEncoder.withIndent('  ').convert(audit);
@@ -351,15 +352,26 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                   Text('Fetched: ${audit['fetched_count'] ?? '-'}'),
                   Text('Filtered: ${audit['filtered_count'] ?? '-'}'),
                   Text('Unique by: ${audit['unique_by'] ?? '-'}'),
-                  if (seed.isNotEmpty) Text('Seed: $seed'),
-                  if (poolHash.isNotEmpty) Text('Pool hash: $poolHash'),
                   const SizedBox(height: 12),
+
+                  // winners list: username + comment text
                   ...winners.map((w) {
                     final u = (w['username'] ?? '').toString();
-                    final id = (w['id'] ?? '').toString();
+                    final t = (w['text'] ?? '').toString().trim();
+                    final ts = (w['timestamp'] ?? '').toString();
+                    final date = ts.isNotEmpty ? ts.split('T').first : '';
+
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text('@$u  (comment_id: $id)'),
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('@$u${date.isNotEmpty ? ' • $date' : ''}',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                          if (t.isNotEmpty) Text(t),
+                        ],
+                      ),
                     );
                   }),
                 ],
