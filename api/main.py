@@ -1259,7 +1259,6 @@ def ig_run_draw():
         ended_at=f.get("ended_at"),
         denylist=f.get("denylist"),
         unique_by=(f.get("unique_by") or "user").lower(),
-        winners = _pick_winners(filtered, winners_count, seed_str, unique_winners=unique_winners),
     )
 
     # 3) draw (детерміновано по seed)
