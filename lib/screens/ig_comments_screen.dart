@@ -119,7 +119,7 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
     final minMentionsCtrl = TextEditingController(text: '0');
 
     String uniqueBy = 'user'; // user|comment|both
-    bool uniqueWinners = true; // важливо для режиму "comment"
+    bool uniqueWinners = false; // важливо для режиму "comment"
     bool excludeMe = false;
 
     final res = await showModalBottomSheet<Map<String, dynamic>?>(
@@ -182,7 +182,9 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                   if (uniqueBy == 'comment') ...[
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Unique winners (max 1 win per user)'),
+                      title: const Text('Unique winners by user'),
+                      subtitle: const Text(
+                          'More comments = higher chance, but winners are unique'),
                       value: uniqueWinners,
                       onChanged: (v) => setLocal(() => uniqueWinners = v),
                     ),
@@ -271,6 +273,7 @@ class _IgCommentsScreenState extends State<IgCommentsScreen> {
                             'min_mentions': minMentions,
                             'required_hashtags': requiredHashtags,
                             'denylist': denylist,
+                            'unique_winners': uniqueWinners,
                           }
                         });
                       },

@@ -30,7 +30,7 @@ from instagrapi.exceptions import (
 
 from device_emulator import emulate_device
 from tasks import fetch_participants_task
-from urllib.parse import urlparse
+from urllib.parse import urlparse,parse_qsl, urlencode, urlunparse
 
 # ── Init & logging ─────────────────────────────────────────────────────────────
 load_dotenv()  # ВАЖЛИВО: до імпорту fb_graph
@@ -95,6 +95,11 @@ queue = Queue(connection=redis_conn)
 URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|reels|tv)/[^/]+/?$")
 LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
 PERMALINK_PATH_RE = re.compile(r"^/(p|reel|reels|tv)/[^/]+/?$")
+
+def _drop_query_param(url: str, name: str) -> str:
+    p = urlparse(url)
+    q = [(k,v) for (k,v) in parse_qsl(p.query, keep_blank_values=True) if k != name]
+    return urlunparse((p.scheme, p.netloc, p.path, p.params, urlencode(q), p.fragment))
 
 def _normalize_permalink(url: str) -> str | None:
     if not url:
@@ -602,6 +607,9 @@ def fb_login_url_endpoint():
     if err:
         return jsonify(err[0]), err[1]
 
+    # якщо force=1 -> залишаємо auth_type=rerequest (примусове перепідтвердження)
+    force = (request.args.get("force") == "1")
+
     state = secrets.token_urlsafe(16)
     states = session.get("fb_oauth_states", [])
     now = time.time()
@@ -614,8 +622,14 @@ def fb_login_url_endpoint():
         "pages_show_list", "pages_read_engagement",
         "instagram_basic", "instagram_manage_comments",
     ]
+
     try:
         url = fb_login_url(state, scopes)
+
+        # за замовчуванням прибираємо auth_type щоб не показувати "Reconnect"
+        if not force:
+            url = _drop_query_param(url, "auth_type")
+
         resp = jsonify({"url": url})
         resp.headers["Cache-Control"] = "no-store"
         return resp
@@ -780,10 +794,10 @@ def _normalize_participants(payload):
             })
     return norm
 
-def _pick_winners(users, k, seed_str):
+def _pick_winners(users, k, seed_str, unique_winners=False):
     seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
     rnd = random.Random(seed)
-    # стабільна база перед тасуванням
+
     pool = sorted(
         users,
         key=lambda r: (
@@ -791,30 +805,22 @@ def _pick_winners(users, k, seed_str):
             (r.get("id") or "").strip()
         )
     )
+
+    if not pool:
+        return []
+
+    rnd.shuffle(pool)
+
     k = max(0, min(k, len(pool)))
     if k == 0:
         return []
-    # детерміноване тасування з використанням seed
-    rnd.shuffle(pool)
-    # Повертаємо перші k елементів у вигляді списку словників
-    return pool[:k]
 
-def _pick_winners_unique_users(rows, k, seed_str):
-    seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
-    rnd = random.Random(seed)
+    if not unique_winners:
+        return pool[:k]
 
-    pool = sorted(
-        rows,
-        key=lambda r: (
-            (r.get("username") or "").strip().lower(),
-            (r.get("id") or "").strip()
-        )
-    )
-    rnd.shuffle(pool)
-
-    winners = []
+    # unique winners by username (вага = кількість коментів, бо pool = коменти)
     seen_users = set()
-
+    winners = []
     for r in pool:
         u = (r.get("username") or "").strip().lower()
         if not u:
@@ -1253,6 +1259,7 @@ def ig_run_draw():
         ended_at=f.get("ended_at"),
         denylist=f.get("denylist"),
         unique_by=(f.get("unique_by") or "user").lower(),
+        winners = _pick_winners(filtered, winners_count, seed_str, unique_winners=unique_winners),
     )
 
     # 3) draw (детерміновано по seed)
@@ -1260,7 +1267,7 @@ def ig_run_draw():
     seed_str = data.get("seed") or f"giveaway-{int(time.time())}-{media_id}"
     unique_winners = bool(data.get("unique_winners", True))
     if unique_winners:
-        winners = _pick_winners_unique_users(filtered, winners_count, seed_str)
+        winners = _pick_winners(filtered, winners_count, seed_str, unique_winners=unique_winners)
     else:
         winners = _pick_winners(filtered, winners_count, seed_str)
 
