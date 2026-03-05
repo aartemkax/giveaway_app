@@ -56,26 +56,24 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Сервер авторизації недоступний. Спробуйте пізніше'),
-        ),
+            content: Text('Сервер авторизації недоступний. Спробуйте пізніше')),
       );
       return;
     }
 
-    final res = await Navigator.of(context)
-        .pushNamedAndRemoveUntil('/fb_oauth', (_) => false);
+    // ВАЖЛИВО: НЕ removeUntil тут
+    final res = await Navigator.of(context).pushNamed('/fb_oauth');
 
     if (!mounted) return;
 
     final fbOk = (res == true) && await _serverHasFbSession();
-
     setState(() => _loading = false);
 
     if (!fbOk) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('FB OAuth не підтвердився на сервері. Повтори логін.'),
-        ),
+            content:
+                Text('FB OAuth не підтвердився на сервері. Повтори логін.')),
       );
       return;
     }
@@ -85,7 +83,8 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
     await prefs.setString('auth_method', 'fb');
 
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed('/fb_home');
+
+    Navigator.of(context).pushNamedAndRemoveUntil('/fb_home', (_) => false);
   }
 
   Future<void> _openInstagramWebLogin() async {
@@ -105,7 +104,8 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
       await prefs.setString('auth_method', 'custom');
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/participants');
+      Navigator.of(context)
+          .pushNamedAndRemoveUntil('/participants', (_) => false);
     }
   }
 
