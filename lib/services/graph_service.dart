@@ -5,8 +5,13 @@ import 'api_client.dart';
 class GraphService {
   final Dio _dio = ApiClient().dio;
 
-  Future<String> loginUrl() async {
-    final r = await _dio.get('/api/fb/login_url');
+  Future<String> loginUrl({String? prompt}) async {
+    final r = await _dio.get(
+      '/api/fb/login_url',
+      queryParameters: {
+        if (prompt != null && prompt.trim().isNotEmpty) 'prompt': prompt.trim(),
+      },
+    );
     return (r.data['url'] as String);
   }
 

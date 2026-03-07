@@ -607,9 +607,6 @@ def fb_login_url_endpoint():
     if err:
         return jsonify(err[0]), err[1]
 
-    # якщо force=1 -> залишаємо auth_type=rerequest (примусове перепідтвердження)
-    force = (request.args.get("force") == "1")
-
     state = secrets.token_urlsafe(16)
     states = session.get("fb_oauth_states", [])
     now = time.time()
@@ -626,9 +623,11 @@ def fb_login_url_endpoint():
     try:
         url = fb_login_url(state, scopes)
 
-        # за замовчуванням прибираємо auth_type щоб не показувати "Reconnect"
-        if not force:
-            url = _drop_query_param(url, "auth_type")
+        # force another FB account if requested
+        prompt = (request.args.get("prompt") or "").strip().lower()
+        if prompt in ("login", "select_account"):
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}prompt={prompt}"
 
         resp = jsonify({"url": url})
         resp.headers["Cache-Control"] = "no-store"
