@@ -17,16 +17,40 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
   bool _loading = true;
   String? _error;
 
+  bool _inited = false;
+
+  Future<void> _clearFbWebViewSession() async {
+    await CookieManager.instance().deleteAllCookies();
+    await WebStorageManager.instance().deleteAllData();
+    await InAppWebViewController.clearAllCache();
+  }
+
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_inited) return;
+    _inited = true;
     _loadAuthUrl();
   }
 
   Future<void> _loadAuthUrl() async {
     try {
+      final args = (ModalRoute.of(context)?.settings.arguments as Map?) ?? {};
+      final prompt = (args['prompt'] ?? '').toString().trim();
+      final clearSession = args['clearSession'] == true;
+
+      if (clearSession) {
+        await _clearFbWebViewSession();
+      }
+
       await ApiClient().init();
-      final r = await ApiClient().dio.get('/api/fb/login_url');
+
+      final r = await ApiClient().dio.get(
+        '/api/fb/login_url',
+        queryParameters: {
+          if (prompt.isNotEmpty) 'prompt': prompt,
+        },
+      );
 
       final data = (r.data is Map) ? (r.data as Map) : <String, dynamic>{};
       final url = data['url'] as String?;
@@ -40,12 +64,14 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
         throw StateError('redirect_uri missing in fb login_url');
       }
 
+      if (!mounted) return;
       setState(() {
         _authUrl = url;
         _redirectUri = redirect;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -56,7 +82,10 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
   Future<void> _exchangeCode(String code) async {
     await ApiClient().dio.post(
       '/api/oauth/facebook/token',
-      data: {'code': code, 'redirect_uri': _redirectUri},
+      data: {
+        'code': code,
+        'redirect_uri': _redirectUri,
+      },
     );
   }
 
@@ -71,7 +100,15 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
     if (_error != null || _authUrl == null || _redirectUri == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Facebook OAuth')),
-        body: Center(child: Text(_error ?? 'Facebook OAuth not configured')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              _error ?? 'Facebook OAuth not configured',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
       );
     }
 
@@ -82,6 +119,8 @@ class _FbOAuthScreenState extends State<FbOAuthScreen> {
         initialSettings: InAppWebViewSettings(
           javaScriptEnabled: true,
           useShouldOverrideUrlLoading: true,
+          clearCache: false,
+          thirdPartyCookiesEnabled: true,
         ),
         shouldOverrideUrlLoading: (controller, action) async {
           final url = action.request.url?.toString() ?? '';
