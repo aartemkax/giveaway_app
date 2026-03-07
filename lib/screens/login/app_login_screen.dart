@@ -45,7 +45,7 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
     }
   }
 
-  Future<void> _openFacebookOAuth() async {
+  Future<void> _openFacebookOAuth({required bool switchAccount}) async {
     if (_loading) return;
     setState(() => _loading = true);
 
@@ -56,13 +56,31 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Сервер авторизації недоступний. Спробуйте пізніше')),
+          content: Text('Сервер авторизації недоступний. Спробуйте пізніше'),
+        ),
       );
       return;
     }
 
-    // ВАЖЛИВО: НЕ removeUntil тут
-    final res = await Navigator.of(context).pushNamed('/fb_oauth');
+    // Якщо це НЕ switch account і серверна сесія вже є — не відкриваємо OAuth взагалі.
+    if (!switchAccount) {
+      final hasSession = await _serverHasFbSession();
+      if (!mounted) return;
+
+      if (hasSession) {
+        setState(() => _loading = false);
+        Navigator.of(context).pushReplacementNamed('/fb_home');
+        return;
+      }
+    }
+
+    final res = await Navigator.of(context).pushNamed(
+      '/fb_oauth',
+      arguments: {
+        'prompt': switchAccount ? 'login' : '',
+        'clearSession': switchAccount,
+      },
+    );
 
     if (!mounted) return;
 
@@ -72,8 +90,8 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
     if (!fbOk) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content:
-                Text('FB OAuth не підтвердився на сервері. Повтори логін.')),
+          content: Text('FB OAuth не підтвердився на сервері. Повтори логін.'),
+        ),
       );
       return;
     }
@@ -83,8 +101,7 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
     await prefs.setString('auth_method', 'fb');
 
     if (!mounted) return;
-
-    Navigator.of(context).pushNamedAndRemoveUntil('/fb_home', (_) => false);
+    Navigator.of(context).pushReplacementNamed('/fb_home');
   }
 
   Future<void> _openInstagramWebLogin() async {
@@ -157,12 +174,32 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _loading ? null : _openFacebookOAuth,
+                    onPressed: _loading
+                        ? null
+                        : () => _openFacebookOAuth(switchAccount: false),
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                     ),
                     child: const Text(
                       'Обрати переможця (офіційний API Facebook)',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: _loading
+                        ? null
+                        : () => _openFacebookOAuth(switchAccount: true),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      side: const BorderSide(color: Colors.white70),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text(
+                      'Увійти через інший Facebook акаунт',
                       textAlign: TextAlign.center,
                     ),
                   ),
