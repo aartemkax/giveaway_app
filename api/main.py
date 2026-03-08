@@ -30,7 +30,8 @@ from instagrapi.exceptions import (
 
 from device_emulator import emulate_device
 from tasks import fetch_participants_task
-from urllib.parse import urlparse,parse_qsl, urlencode, urlunparse
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse, unquote
+from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 
 # ── Init & logging ─────────────────────────────────────────────────────────────
 load_dotenv()  # ВАЖЛИВО: до імпорту fb_graph
@@ -1381,30 +1382,118 @@ def index():
 def login_by_sessionid():
     if request.method == 'OPTIONS':
         return '', 204
+
     data = request.get_json(silent=True) or {}
-    sid = (data.get('sessionid') or '').strip()
+
+    sid_raw = (data.get('sessionid') or '').strip()
+    sid = unquote(sid_raw)
+
     if not sid:
-        return jsonify({'error': 'validation_error', 'detail': 'sessionid required'}), 400
+        return jsonify({
+            'error': 'validation_error',
+            'detail': 'sessionid required'
+        }), 400
 
-    emu = session.get('emu_cache') or emulate_device({}, use_phone_code=True)
-    cl = Client()
-    cl.set_settings(emu['settings'])
+    if ':' not in sid:
+        return jsonify({
+            'error': 'invalid_sessionid_format',
+            'detail': 'sessionid must be raw cookie value, not encoded'
+        }), 400
 
-    proxy_url = os.getenv("PROXY_URL")
-    if proxy_url:
-        cl.set_proxy(proxy_url)
-    cl.delay_range = [2, 5]
+    raw_device = data.get('deviceInfo') or {}
+    raw_device.setdefault("userAgent", "Instagram 269.0.0.18.75 Android")
+    raw_device.setdefault("platform", "Android")
+    raw_device.setdefault("locale", "uk-UA")
+    raw_device.setdefault("timezoneOffset", 180)
+    raw_device.setdefault("screen", {"width": 1080, "height": 1920, "pixelRatio": 3})
 
     try:
+        emu = session.get('emu_cache')
+        if not emu:
+            emu = emulate_device(raw_device, use_phone_code=True)
+            session['emu_cache'] = emu
+
+        settings = emu['settings']
+        ua = emu.get('device_agent') or settings.get('user_agent')
+    except Exception as e:
+        logger.exception("emulate_device failed in login_by_sessionid")
+        return jsonify({
+            'error': 'invalid_device_info',
+            'detail': str(e)
+        }), 400
+
+    cl = Client()
+
+    try:
+        if settings.get('device_settings'):
+            cl.set_device(settings['device_settings'])
+
+        settings['user_agent'] = ua
+        cl.set_settings(settings)
+
+        if ua:
+            cl.user_agent = ua
+            cl.private.headers.update({"User-Agent": ua})
+
+        proxy_url = os.getenv("PROXY_URL")
+        if proxy_url:
+            cl.set_proxy(proxy_url)
+
+        cl.delay_range = [2, 5]
+
         ok = cl.login_by_sessionid(sid)
         if not ok:
             return jsonify({'error': 'invalid_sessionid'}), 401
+
+    except ChallengeRequired:
+        return jsonify({
+            'error': 'instagram_challenge',
+            'detail': 'challenge required'
+        }), 412
+
+    except TwoFactorRequired:
+        return jsonify({
+            'error': 'two_factor_required'
+        }), 412
+
+    except LoginRequired:
+        return jsonify({
+            'error': 'invalid_sessionid',
+            'detail': 'session is not valid anymore'
+        }), 401
+
+    except RequestsJSONDecodeError:
+        logger.exception("login_by_sessionid json decode -> likely challenge/html response")
+        return jsonify({
+            'error': 'instagram_challenge',
+            'detail': 'instagram returned non-json response, likely challenge/checkpoint'
+        }), 412
+
+    except ClientError as e:
+        msg = str(e)
+        logger.exception("login_by_sessionid ClientError")
+        if 'challenge' in msg.lower() or 'checkpoint' in msg.lower():
+            return jsonify({
+                'error': 'instagram_challenge',
+                'detail': msg
+            }), 412
+        return jsonify({
+            'error': 'invalid_sessionid',
+            'detail': msg
+        }), 401
+
     except Exception as e:
         logger.exception("login_by_sessionid failed")
-        return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
+        return jsonify({
+            'error': 'internal_error',
+            'detail': str(e)
+        }), 500
 
     session['ig_settings'] = cl.get_settings()
-    session['emu_cache'] = {'settings': session['ig_settings'], 'device_agent': cl.user_agent}
+    session['emu_cache'] = {
+        'settings': session['ig_settings'],
+        'device_agent': cl.user_agent,
+    }
     return jsonify({'ok': True}), 200
 
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
