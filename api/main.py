@@ -183,7 +183,7 @@ def _log_response(resp):
     logger.info("<< %s %s -> %s", request.method, request.path, resp.status)
     return resp
 
-def _do_login(username: str, password: str, settings: dict, ua: str, proxy: str | None = None) -> dict:
+def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
     cl = Client()
 
     if settings.get("device_settings"):
@@ -195,10 +195,21 @@ def _do_login(username: str, password: str, settings: dict, ua: str, proxy: str 
     cl.user_agent = ua
     cl.private.headers.update({"User-Agent": ua})
 
-    logger.info("instagrapi login: start user=%s proxy=%s", username, proxy or "none")
+    logger.info("instagrapi login: start user=%s", username)
 
-    if proxy:
-        cl.set_proxy(proxy)
+    def pre_login_flow():
+        cl.private_request("si/fetch_headers/", {})
+        token = cl.private.cookies.get("csrftoken")
+        if token:
+            cl.private.headers["X-CSRFToken"] = token
+            logger.info("CSRF injected: %s", token)
+        else:
+            logger.warning("No csrftoken found")
+
+    cl.pre_login_flow = pre_login_flow
+    cl.change_password_handler = (
+        lambda u: (_ for _ in ()).throw(ChallengeRequired("challenge"))
+    )
 
     cl.delay_range = [2, 5]
     cl.login(username, password)
@@ -250,7 +261,7 @@ def login():
 
     try:
         with futures.ThreadPoolExecutor(max_workers=1) as ex:
-            fut = ex.submit(_do_login, username, password, settings, ua, proxy)
+            fut = ex.submit(_do_login, username, password, settings, ua)
             session_settings = fut.result(timeout=LOGIN_TIMEOUT_SEC)
 
     except futures.TimeoutError:
@@ -368,7 +379,7 @@ def fetch_async():
         fetch_participants_task,
         settings_b64,
         post_url,
-        False,
+        USE_PROXY,
         data.get('device_info'),
         data.get('region'),
         job_timeout=600,
