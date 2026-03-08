@@ -13,6 +13,30 @@ class InstagramLoginWebView extends StatefulWidget {
 
 class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
   final WebUri _instaUri = WebUri('https://www.instagram.com/accounts/login/');
+  bool _canTryImport(WebUri? url) {
+  final u = (url?.toString() ?? '').toLowerCase();
+
+  if (u.isEmpty) return false;
+  if (u.contains('/accounts/login')) return false;
+  if (u.contains('/challenge/')) return false;
+  if (u.contains('/checkpoint/')) return false;
+
+  return u.startsWith('https://www.instagram.com/');
+}
+
+Future<void> _handleImportResult(bool ok, {String? message}) async {
+  if (!mounted) return;
+
+  if (message != null && message.isNotEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  await Future.delayed(const Duration(milliseconds: 100));
+  if (!mounted) return;
+  Navigator.of(context).pop(ok);
+}
   bool _sent = false;
 
   @override
@@ -34,35 +58,80 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
           }
         },
         onLoadStop: (controller, url) async {
-          final cookies = await CookieManager.instance()
-              .getCookies(url: WebUri('https://www.instagram.com/'));
-          String sid = '';
-          for (final c in cookies) {
-            if (c.name == 'sessionid') {
-              sid = c.value ?? '';
-              break;
-            }
-          }
-          if (!_sent && sid.isNotEmpty) {
-            _sent = true;
-            final ok = await _sendSessionIdToApi(sid);
-            if (!mounted) return;
-            // ignore: use_build_context_synchronously
-            Navigator.of(context).pop(ok);
-          }
-        },
+  if (_sent) return;
+  if (!_canTryImport(url)) return;
+
+  final cookies = await CookieManager.instance()
+      .getCookies(url: WebUri('https://www.instagram.com/'));
+
+  String sid = '';
+  String dsUserId = '';
+
+  for (final c in cookies) {
+    if (c.name == 'sessionid') {
+      sid = c.value ?? '';
+    }
+    if (c.name == 'ds_user_id') {
+      dsUserId = c.value ?? '';
+    }
+  }
+
+  if (sid.isEmpty || dsUserId.isEmpty) {
+    return;
+  }
+
+  _sent = true;
+
+  final result = await _sendSessionIdToApi(sid);
+
+  if (result.$1 == true) {
+    await _handleImportResult(true);
+    return;
+  }
+
+  await _handleImportResult(false, message: result.$2);
+},
       ),
     );
   }
 
-  Future<bool> _sendSessionIdToApi(String sessionId) async {
-    try {
-      await ApiClient()
-          .dio
-          .post('/api/login_by_sessionid', data: {'sessionid': sessionId});
-      return true;
-    } on DioException {
-      return false;
+  Future<(bool, String?)> _sendSessionIdToApi(String sessionId) async {
+  try {
+    final sid = Uri.decodeComponent(sessionId.trim());
+
+    await ApiClient().dio.post(
+      '/api/login_by_sessionid',
+      data: {'sessionid': sid},
+    );
+
+    return (true, null);
+  } on DioException catch (e) {
+    final code = e.response?.statusCode;
+    final data = e.response?.data;
+
+    if (code == 412 && data is Map && data['error'] == 'instagram_challenge') {
+      return (
+        false,
+        'Instagram відхилив цю сесію через challenge/checkpoint. Це не баг UI.'
+      );
     }
+
+    if (code == 401 && data is Map && data['error'] == 'invalid_sessionid') {
+      return (
+        false,
+        'Сесія Instagram вже недійсна.'
+      );
+    }
+
+    return (
+      false,
+      'Помилка імпорту сесії: ${e.message}'
+    );
+  } catch (e) {
+    return (
+      false,
+      'Помилка імпорту сесії: $e'
+    );
   }
+}
 }
