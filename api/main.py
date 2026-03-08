@@ -11,7 +11,10 @@ import secrets
 import concurrent.futures as futures
 import random, hashlib
 import csv, io
+from weakref import proxy
 import requests as rq
+import threading
+import requests
 GRAPH = "https://graph.facebook.com/v21.0"
 
 from flask import Flask, request, jsonify, session, Response
@@ -37,6 +40,37 @@ from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 load_dotenv()  # ВАЖЛИВО: до імпорту fb_graph
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
+
+USE_PROXY = os.getenv("USE_PROXY", "false").lower() == "true"
+PROXIES = []
+
+def load_proxy_list():
+    try:
+        resp = requests.get(
+            "https://www.proxy-list.download/api/v1/get?type=https",
+            timeout=10,
+        )
+        return [line.strip() for line in resp.text.splitlines() if ":" in line]
+    except Exception:
+        logger.exception("load_proxy_list failed")
+        return []
+
+def refresh_proxies():
+    global PROXIES
+    while True:
+        new = load_proxy_list()
+        if new:
+            PROXIES = new
+            logger.info("Public proxies refreshed: %s", len(PROXIES))
+        else:
+            logger.warning("Public proxies list is empty")
+        time.sleep(3600)
+
+if USE_PROXY:
+    threading.Thread(target=refresh_proxies, daemon=True).start()
+    logger.info("Public proxy rotation enabled")
+else:
+    logger.info("Public proxy rotation disabled")
 
 # ── FB Graph (імпорт після dotenv) ────────────────────────────────────────────
 fb_import_error = None
@@ -149,25 +183,30 @@ def _log_response(resp):
     logger.info("<< %s %s -> %s", request.method, request.path, resp.status)
     return resp
 
-def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
+def _do_login(username: str, password: str, settings: dict, ua: str, proxy: str | None = None) -> dict:
     cl = Client()
-    cl.set_device(settings['device_settings'])
-    settings['user_agent'] = ua
+
+    if settings.get("device_settings"):
+        cl.set_device(settings["device_settings"])
+
+    settings["user_agent"] = ua
     cl.set_settings(settings)
+
     cl.user_agent = ua
     cl.private.headers.update({"User-Agent": ua})
 
-    logger.info("instagrapi login: start user=%s", username)
-    proxy_url = os.getenv("PROXY_URL")
-    if proxy_url:
-        cl.set_proxy(proxy_url)
+    logger.info("instagrapi login: start user=%s proxy=%s", username, proxy or "none")
+
+    if proxy:
+        cl.set_proxy(proxy)
 
     cl.delay_range = [2, 5]
     cl.login(username, password)
+
     logger.info("instagrapi login: success user=%s", username)
 
     sess = cl.get_settings()
-    sess['device_agent'] = ua
+    sess["device_agent"] = ua
     return sess
 
 def _json_nostore(payload, status=200):
@@ -182,8 +221,8 @@ def login():
         return '', 204
 
     data = request.get_json(silent=True) or {}
-    username   = (data.get('username') or '').strip()
-    password   = (data.get('password') or '').strip()
+    username = (data.get('username') or '').strip()
+    password = (data.get('password') or '').strip()
     raw_device = data.get('deviceInfo') or {}
 
     logger.info("LOGIN start for user=%s", username)
@@ -201,20 +240,25 @@ def login():
             session['emu_cache'] = emu
 
         settings = emu['settings']
-        ua       = emu.get('device_agent')
+        ua = emu.get('device_agent')
     except Exception as e:
         logger.exception("emulate_device failed")
         return jsonify({'error': 'invalid_device_info', 'detail': str(e)}), 400
 
+    proxy = random.choice(PROXIES) if USE_PROXY and PROXIES else None
+    logger.info("login proxy=%s", proxy if proxy else "none")
+
     try:
         with futures.ThreadPoolExecutor(max_workers=1) as ex:
-            fut = ex.submit(_do_login, username, password, settings, ua)
+            fut = ex.submit(_do_login, username, password, settings, ua, proxy)
             session_settings = fut.result(timeout=LOGIN_TIMEOUT_SEC)
 
     except futures.TimeoutError:
         logger.error("Login timeout for %s after %ss", username, LOGIN_TIMEOUT_SEC)
-        return jsonify({'error': 'gateway_timeout',
-                        'detail': f'Login took longer than {LOGIN_TIMEOUT_SEC}s'}), 504
+        return jsonify({
+            'error': 'gateway_timeout',
+            'detail': f'Login took longer than {LOGIN_TIMEOUT_SEC}s'
+        }), 504
 
     except (BadPassword, UserNotFound):
         return jsonify({'error': 'invalid_credentials'}), 401
@@ -246,7 +290,7 @@ def login():
         return jsonify({'error': 'internal_error', 'detail': msg}), 500
 
     except Exception as e:
-        logger.exception('Login failed (unexpected)')
+        logger.exception("Login failed (unexpected)")
         return jsonify({'error': 'internal_error', 'detail': str(e)}), 500
 
     finally:
@@ -1422,7 +1466,9 @@ def login_by_sessionid():
             'detail': str(e)
         }), 400
 
-    cl = Client()
+    proxy = random.choice(PROXIES) if USE_PROXY and PROXIES else None
+    cl = Client(proxy=proxy)
+    logger.info("login_by_sessionid proxy=%s", proxy if proxy else "none")
 
     try:
         if settings.get('device_settings'):
