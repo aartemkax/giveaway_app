@@ -41,7 +41,7 @@ load_dotenv()  # ВАЖЛИВО: до імпорту fb_graph
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
 
-USE_PROXY = os.getenv("USE_PROXY", "false").lower() == "true"
+USE_PROXY = False
 PROXIES = []
 
 def load_proxy_list():
@@ -256,8 +256,7 @@ def login():
         logger.exception("emulate_device failed")
         return jsonify({'error': 'invalid_device_info', 'detail': str(e)}), 400
 
-    proxy = random.choice(PROXIES) if USE_PROXY and PROXIES else None
-    logger.info("login proxy=%s", proxy if proxy else "none")
+    logger.info("login proxy=none")
 
     try:
         with futures.ThreadPoolExecutor(max_workers=1) as ex:
@@ -1477,9 +1476,8 @@ def login_by_sessionid():
             'detail': str(e)
         }), 400
 
-    proxy = random.choice(PROXIES) if USE_PROXY and PROXIES else None
-    cl = Client(proxy=proxy)
-    logger.info("login_by_sessionid proxy=%s", proxy if proxy else "none")
+    cl = Client()
+    logger.info("login_by_sessionid proxy=none")
 
     try:
         if settings.get('device_settings'):
@@ -1491,10 +1489,6 @@ def login_by_sessionid():
         if ua:
             cl.user_agent = ua
             cl.private.headers.update({"User-Agent": ua})
-
-        proxy_url = os.getenv("PROXY_URL")
-        if proxy_url:
-            cl.set_proxy(proxy_url)
 
         cl.delay_range = [2, 5]
 
