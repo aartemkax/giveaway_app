@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
-import 'package:giveaway_app/screens/login/instagram_login_webview.dart';
 import 'package:giveaway_app/services/api_client.dart';
 
 class AppLoginScreen extends StatefulWidget {
@@ -102,28 +101,6 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
 
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/fb_home');
-  }
-
-  Future<void> _openInstagramWebLogin() async {
-    if (_loading) return;
-    setState(() => _loading = true);
-
-    final ok = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const InstagramLoginWebView()),
-    );
-
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    if (ok == true) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('auth_method', 'custom');
-
-      if (!mounted) return;
-      Navigator.of(context)
-          .pushNamedAndRemoveUntil('/participants', (_) => false);
-    }
   }
 
   @override
@@ -224,19 +201,16 @@ class _AppLoginScreenState extends State<AppLoginScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton(
-                    onPressed: _loading ? null : _openInstagramWebLogin,
+                    onPressed: _loading
+                        ? null
+                        : () =>
+                            Navigator.of(context).pushNamed('/password_login'),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                       side: const BorderSide(color: Colors.white70),
                       foregroundColor: Colors.white,
                     ),
-                    child: _loading
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(loc.open_instagram_button),
+                    child: Text(loc.open_instagram_button),
                   ),
                 ),
                 const Spacer(flex: 2),

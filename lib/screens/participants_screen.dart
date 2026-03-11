@@ -10,8 +10,6 @@ import '../services/participants_service.dart';
 import '../models/participant.dart';
 import '../widgets/participant_card.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:giveaway_app/services/api_client.dart';
 import 'package:giveaway_app/utils/error_messages.dart';
 import '../../services/auth_service.dart';
 
