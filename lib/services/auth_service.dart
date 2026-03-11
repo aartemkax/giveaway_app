@@ -4,15 +4,16 @@ import 'package:giveaway_app/services/api_client.dart';
 import '../utils/api_exception.dart';
 
 class AuthService {
-  final Dio _dio = ApiClient().dio;
+  Dio get _dio => ApiClient().dio;
 
-  /// Логін паролем. deviceInfo — опційно (передавай емуляцію з бекенду, якщо є).
   Future<void> login(
     String username,
     String password, {
     Map<String, dynamic>? deviceInfo,
   }) async {
     try {
+      await ApiClient().init();
+
       await _dio.post(
         '/api/login',
         data: {
@@ -21,15 +22,16 @@ class AuthService {
           'deviceInfo': deviceInfo ?? {},
         },
       );
-      // Flask-session cookie збереже CookieManager з ApiClient.
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
     }
   }
 
-  /// Логін по sessionid з Instagram (fallback через веб-логін).
+  // Лишити можна, але не як основний flow
   Future<void> loginBySessionId(String sessionId) async {
     try {
+      await ApiClient().init();
+
       await _dio.post(
         '/api/login_by_sessionid',
         data: {'sessionid': sessionId},
@@ -39,13 +41,37 @@ class AuthService {
     }
   }
 
-  /// Допоміжне: глянути стан серверної сесії.
+  Future<bool> hasValidSession() async {
+    try {
+      await ApiClient().init();
+
+      final r = await _dio.get('/api/session_status');
+      final data = Map<String, dynamic>.from(r.data as Map);
+      return data['authenticated'] == true;
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
   Future<Map<String, dynamic>> debugSession() async {
     try {
+      await ApiClient().init();
+
       final r = await _dio.get('/api/debug_session');
       return Map<String, dynamic>.from(r.data as Map);
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
+    }
+  }
+
+  Future<void> logout() async {
+    try {
+      await ApiClient().init();
+      await _dio.post('/api/logout');
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    } finally {
+      await ApiClient().clearCookies();
     }
   }
 }

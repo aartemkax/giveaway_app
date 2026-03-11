@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/services/api_client.dart';
+import 'package:giveaway_app/services/auth_service.dart';
 
 import 'screens/login/app_login_screen.dart';
 import 'screens/login/participants_screen.dart';
@@ -19,44 +20,81 @@ final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
 
 typedef AuthState = ({bool isLoggedIn, String authMethod});
 
+class StartupGate extends ConsumerWidget {
+  final ValueChanged<Locale> onLocaleChanged;
+
+  const StartupGate({
+    required this.onLocaleChanged,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authStateProvider);
+
+    return auth.when(
+      loading: () => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      error: (_, __) => AppLoginScreen(
+        onLocaleChanged: onLocaleChanged,
+      ),
+      data: (state) {
+        if (!state.isLoggedIn) {
+          return AppLoginScreen(
+            onLocaleChanged: onLocaleChanged,
+          );
+        }
+
+        if (state.authMethod == 'fb') {
+          return const FbHomeScreen();
+        }
+
+        return ParticipantsScreen(
+          onLocaleChanged: onLocaleChanged,
+        );
+      },
+    );
+  }
+}
+
 final authStateProvider = FutureProvider<AuthState>((ref) async {
+  await ApiClient().init();
+
   final prefs = await SharedPreferences.getInstance();
-  final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
   final authMethod = (prefs.getString('auth_method') ?? '').trim();
 
-  if (!isLoggedIn || authMethod.isEmpty) {
+  if (authMethod.isEmpty) {
     return (isLoggedIn: false, authMethod: '');
   }
 
   try {
-    // ApiClient вже інітиться в main(), але цей виклик безпечний
-    await ApiClient().init();
+    if (authMethod == 'fb') {
+      final data = await AuthService().debugSession();
+      final ok = data['fb_user_token_present'] == true;
+      if (ok) {
+        return (isLoggedIn: true, authMethod: 'fb');
+      }
+    }
 
-    final r = await ApiClient().dio.get('/api/debug_session');
-    final m = (r.data is Map) ? Map<String, dynamic>.from(r.data as Map) : {};
-
-    final serverOk = (authMethod == 'fb')
-        ? (m['fb_user_token_present'] == true)
-        : (m['ig_settings_present'] == true);
-
-    if (serverOk) {
-      return (isLoggedIn: true, authMethod: authMethod);
+    if (authMethod == 'ig') {
+      final ok = await AuthService().hasValidSession();
+      if (ok) {
+        return (isLoggedIn: true, authMethod: 'ig');
+      }
     }
   } catch (_) {
-    // якщо бек недоступний — не робимо auto-logout тут
-    // залишимо як є, щоб юзер сам повторив дію
-    return (isLoggedIn: true, authMethod: authMethod);
+    // бек недоступний або помилка перевірки
   }
 
-  // серверної сесії нема -> скидаємо локально
-  await prefs.setBool('isLoggedIn', false);
   await prefs.remove('auth_method');
+  await ApiClient().clearCookies();
+
   return (isLoggedIn: false, authMethod: '');
 });
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await dotenv.load(fileName: '.env');
   await ApiClient().init();
 
@@ -75,11 +113,12 @@ class MyApp extends ConsumerWidget {
       locale: locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
-
-      // ключове
-      initialRoute: '/login',
-
+      initialRoute: '/',
       routes: {
+        '/': (_) => StartupGate(
+              onLocaleChanged: (l) =>
+                  ref.read(localeProvider.notifier).state = l,
+            ),
         '/login': (_) => AppLoginScreen(
               onLocaleChanged: (l) =>
                   ref.read(localeProvider.notifier).state = l,

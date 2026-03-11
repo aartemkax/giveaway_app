@@ -13,6 +13,7 @@ import 'package:giveaway_app/utils/asset_paths.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:giveaway_app/services/api_client.dart';
 import 'package:giveaway_app/utils/error_messages.dart';
+import '../../services/auth_service.dart';
 
 class ParticipantsScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
@@ -41,25 +42,20 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
   Future<void> _logout() async {
     try {
-      // важливо: викликати поки cookie ще є, щоб бек точно почистив сесію
-      await ApiClient().dio.post('/api/logout');
-    } catch (_) {}
+      await AuthService().logout();
+    } catch (_) {
+      // навіть якщо бек відвалився, локально все одно чистимо
+    }
 
-    // WebView cookies (IG / OAuth webview) — можна чистити на logout
-    try {
-      await CookieManager.instance().deleteAllCookies();
-    } catch (_) {}
-
-    // ВАЖЛИВО: не чистимо Dio cookie jar тут (мінімальний варіант)
-    // try { await ApiClient().clearCookies(); } catch (_) {}
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('isLoggedIn');
-    } catch (_) {}
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_method');
 
     if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
+
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/login',
+      (route) => false,
+    );
   }
 
   Future<void> _refreshAndChoose() async {

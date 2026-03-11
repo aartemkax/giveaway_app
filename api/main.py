@@ -11,10 +11,7 @@ import secrets
 import concurrent.futures as futures
 import random, hashlib
 import csv, io
-from weakref import proxy
 import requests as rq
-import threading
-import requests
 GRAPH = "https://graph.facebook.com/v21.0"
 
 from flask import Flask, request, jsonify, session, Response
@@ -43,34 +40,7 @@ logger = logging.getLogger("api")
 
 USE_PROXY = False
 PROXIES = []
-
-def load_proxy_list():
-    try:
-        resp = requests.get(
-            "https://www.proxy-list.download/api/v1/get?type=https",
-            timeout=10,
-        )
-        return [line.strip() for line in resp.text.splitlines() if ":" in line]
-    except Exception:
-        logger.exception("load_proxy_list failed")
-        return []
-
-def refresh_proxies():
-    global PROXIES
-    while True:
-        new = load_proxy_list()
-        if new:
-            PROXIES = new
-            logger.info("Public proxies refreshed: %s", len(PROXIES))
-        else:
-            logger.warning("Public proxies list is empty")
-        time.sleep(3600)
-
-if USE_PROXY:
-    threading.Thread(target=refresh_proxies, daemon=True).start()
-    logger.info("Public proxy rotation enabled")
-else:
-    logger.info("Public proxy rotation disabled")
+logger.info("Public proxy rotation disabled")
 
 # ── FB Graph (імпорт після dotenv) ────────────────────────────────────────────
 fb_import_error = None
@@ -100,7 +70,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true",
     SESSION_REDIS=Redis.from_url(redis_url, **_tls),
     SESSION_COOKIE_HTTPONLY=True,
-    SESSION_PERMANENT=False,  # уникаємо довгоживучих сесій
+    SESSION_PERMANENT=True,  #  дозволяємо server-side session жити до PERMANENT_SESSION_LIFETIME
     PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
 )
 Session(app)
@@ -135,6 +105,22 @@ def _drop_query_param(url: str, name: str) -> str:
     p = urlparse(url)
     q = [(k,v) for (k,v) in parse_qsl(p.query, keep_blank_values=True) if k != name]
     return urlunparse((p.scheme, p.netloc, p.path, p.params, urlencode(q), p.fragment))
+
+def _build_client_from_settings(settings: dict) -> Client:
+    cl = Client()
+
+    if settings.get("device_settings"):
+        cl.set_device(settings["device_settings"])
+
+    cl.set_settings(settings)
+
+    ua = settings.get("user_agent") or settings.get("device_agent")
+    if ua:
+        cl.user_agent = ua
+        cl.private.headers.update({"User-Agent": ua})
+
+    cl.delay_range = [2, 5]
+    return cl
 
 def _normalize_permalink(url: str) -> str | None:
     if not url:
@@ -202,13 +188,13 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
         token = cl.private.cookies.get("csrftoken")
         if token:
             cl.private.headers["X-CSRFToken"] = token
-            logger.info("CSRF injected: %s", token)
+            logger.info("CSRF injected")
         else:
             logger.warning("No csrftoken found")
 
     cl.pre_login_flow = pre_login_flow
-    cl.change_password_handler = (
-        lambda u: (_ for _ in ()).throw(ChallengeRequired("challenge"))
+    cl.change_password_handler = lambda u: (_ for _ in ()).throw(
+        ChallengeRequired("challenge")
     )
 
     cl.delay_range = [2, 5]
@@ -306,9 +292,47 @@ def login():
     finally:
         logger.info("Login %s finished", username)
 
+    session.permanent = True
     session["ig_settings"] = session_settings
-    session['emu_cache'] = {'settings': session_settings, 'device_agent': ua}
-    return jsonify({'settings': session_settings}), 200
+    session["emu_cache"] = {
+    "settings": session_settings,
+    "device_agent": ua,
+    }
+    return jsonify({"ok": True}), 200
+
+# ── Session status check ─────────────────────────────────────────────────────
+@app.get("/api/session_status")
+def session_status():
+    ig_settings = session.get("ig_settings")
+    if not ig_settings:
+        return _json_nostore({
+            "authenticated": False,
+            "reason": "no_session",
+        }, 200)
+
+    try:
+        cl = _build_client_from_settings(ig_settings)
+        cl.get_timeline_feed()
+        return _json_nostore({
+            "authenticated": True,
+        }, 200)
+
+    except (LoginRequired, ChallengeRequired, RequestsJSONDecodeError):
+        session.pop("ig_settings", None)
+        session.pop("emu_cache", None)
+        session.modified = True
+        return _json_nostore({
+            "authenticated": False,
+            "reason": "expired",
+        }, 200)
+
+    except Exception as e:
+        logger.exception("session_status failed")
+        return _json_nostore({
+            "authenticated": False,
+            "reason": "invalid",
+            "detail": str(e),
+        }, 200)
 
 # ── Public utils ───────────────────────────────────────────────────────────────
 @app.route('/api/collect_device_geo', methods=['POST', 'OPTIONS'])
@@ -1540,11 +1564,12 @@ def login_by_sessionid():
             'detail': str(e)
         }), 500
 
+    session.permanent = True
     session['ig_settings'] = cl.get_settings()
     session['emu_cache'] = {
         'settings': session['ig_settings'],
         'device_agent': cl.user_agent,
-    }
+        }
     return jsonify({'ok': True}), 200
 
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
