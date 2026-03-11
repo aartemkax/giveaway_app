@@ -24,8 +24,9 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from instagrapi import Client
 from instagrapi.exceptions import (
-    BadPassword, ChallengeRequired, TwoFactorRequired,
+    BadPassword, ChallengeRequired, ChallengeUnknownStep, TwoFactorRequired,
     UserNotFound, PleaseWaitFewMinutes, LoginRequired, ClientError,
+    ClientJSONDecodeError,
 )
 
 from device_emulator import emulate_device
@@ -183,8 +184,17 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
 
     logger.info("instagrapi login: start user=%s", username)
 
+    def _raise_challenge(exc: Exception) -> None:
+        logger.warning("instagrapi login challenge/non-json for user=%s: %s", username, exc)
+        raise ChallengeRequired("challenge") from exc
+
     def pre_login_flow():
-        cl.private_request("si/fetch_headers/", {})
+        try:
+            cl.private_request("si/fetch_headers/", {})
+        except (ChallengeRequired, ChallengeUnknownStep):
+            raise
+        except (RequestsJSONDecodeError, ClientJSONDecodeError) as exc:
+            _raise_challenge(exc)
         token = cl.private.cookies.get("csrftoken")
         if token:
             cl.private.headers["X-CSRFToken"] = token
@@ -198,7 +208,12 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
     )
 
     cl.delay_range = [2, 5]
-    cl.login(username, password)
+    try:
+        cl.login(username, password)
+    except (ChallengeRequired, ChallengeUnknownStep):
+        raise
+    except (RequestsJSONDecodeError, ClientJSONDecodeError) as exc:
+        _raise_challenge(exc)
 
     logger.info("instagrapi login: success user=%s", username)
 
@@ -259,7 +274,7 @@ def login():
     except (BadPassword, UserNotFound):
         return jsonify({'error': 'invalid_credentials'}), 401
 
-    except ChallengeRequired:
+    except (ChallengeRequired, ChallengeUnknownStep, RequestsJSONDecodeError, ClientJSONDecodeError):
         return jsonify({'error': 'instagram_challenge'}), 412
 
     except TwoFactorRequired:
@@ -335,6 +350,7 @@ def session_status():
         }, 200)
 
 # ── Public utils ───────────────────────────────────────────────────────────────
+@app.route('/api/collect_geo', methods=['POST', 'OPTIONS'])
 @app.route('/api/collect_device_geo', methods=['POST', 'OPTIONS'])
 def collect_device_geo():
     if request.method == 'OPTIONS':

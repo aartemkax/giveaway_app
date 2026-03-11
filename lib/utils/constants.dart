@@ -7,7 +7,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 String get apiBaseUrl => dotenv.env['API_BASE_URL'] ?? 'http://10.0.2.2:8080';
 
 /// URI для гео-запиту (бекенд дивиться на IP клієнта)
-Uri get collectGeoUri => Uri.parse('$apiBaseUrl/api/collect_geo');
+Uri get collectGeoUri => Uri.parse('$apiBaseUrl/api/collect_device_geo');
 
 /// URI для емуляції девайса на сервері
 Uri get deviceReportUri => Uri.parse('$apiBaseUrl/api/device_report');
