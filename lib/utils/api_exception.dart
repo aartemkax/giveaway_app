@@ -62,6 +62,10 @@ class ApiException implements Exception {
         return ApiException('instagram_challenge',
             detail: detail, status: status);
       }
+      if (status == 412 && code == 'sessionid_challenge') {
+        return ApiException('sessionid_challenge',
+            detail: detail, status: status);
+      }
       if (status == 403 && code == 'suspicious_login') {
         return ApiException('suspicious_login', detail: detail, status: status);
       }

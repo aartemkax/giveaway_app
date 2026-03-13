@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:dio/dio.dart';
 import 'package:giveaway_app/services/api_client.dart';
+import 'package:giveaway_app/utils/api_exception.dart';
 
 class InstagramLoginWebView extends StatefulWidget {
   const InstagramLoginWebView({super.key});
@@ -15,9 +16,42 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
   InAppWebViewController? _ctl;
   bool _sent = false;
   bool _failed = false;
+  String? _apiError;
+
+  String _sessionErrorText(Locale locale, String? code) {
+    if (code == 'sessionid_challenge') {
+      switch (locale.languageCode) {
+        case 'uk':
+          return 'Instagram не прийняв sessionid на сервері. Ймовірна причина: challenge або невідповідність IP/device context.';
+        case 'fr':
+          return 'Instagram a refuse le sessionid cote serveur. Cause probable: challenge ou mismatch IP/appareil.';
+        default:
+          return 'Instagram rejected the sessionid on the server. Likely cause: challenge or IP/device context mismatch.';
+      }
+    }
+    if (code == 'invalid_sessionid') {
+      switch (locale.languageCode) {
+        case 'uk':
+          return 'Sessionid невалідний або вже протух.';
+        case 'fr':
+          return 'Le sessionid est invalide ou expire.';
+        default:
+          return 'The sessionid is invalid or expired.';
+      }
+    }
+    switch (locale.languageCode) {
+      case 'uk':
+        return 'Не вдалося увійти через sessionid.';
+      case 'fr':
+        return 'Connexion via sessionid impossible.';
+      default:
+        return 'Sessionid login failed.';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final locale = Localizations.localeOf(context);
     return Scaffold(
       appBar: AppBar(title: const Text('Instagram Login')),
       body: Stack(
@@ -28,7 +62,7 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               thirdPartyCookiesEnabled: true,
-              sharedCookiesEnabled: true, // важливо для iOS
+              sharedCookiesEnabled: true,
             ),
             onReceivedError: (controller, request, error) async {
               if (request.isForMainFrame == true) {
@@ -47,9 +81,19 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
               }
               if (!_sent && sid.isNotEmpty) {
                 _sent = true;
-                final ok = await _sendSessionIdToApi(sid);
+                final code = await _sendSessionIdToApi(sid);
                 if (!mounted) return;
-                Navigator.of(context).pop(ok);
+                if (code == null) {
+                  Navigator.of(context).pop(true);
+                  return;
+                }
+                setState(() {
+                  _apiError = code;
+                  _sent = false;
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(_sessionErrorText(locale, code))),
+                );
               }
             },
           ),
@@ -86,19 +130,31 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
                 ),
               ),
             ),
+          if (_apiError != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(_sessionErrorText(locale, _apiError)),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Future<bool> _sendSessionIdToApi(String sessionId) async {
+  Future<String?> _sendSessionIdToApi(String sessionId) async {
     try {
       await ApiClient()
           .dio
           .post('/api/login_by_sessionid', data: {'sessionid': sessionId});
-      return true;
-    } on DioException {
-      return false;
+      return null;
+    } on DioException catch (e) {
+      return ApiException.fromDio(e).code;
     }
   }
 }

@@ -1538,7 +1538,7 @@ def login_by_sessionid():
 
     except ChallengeRequired:
         return jsonify({
-            'error': 'instagram_challenge',
+            'error': 'sessionid_challenge',
             'detail': 'challenge required'
         }), 412
 
@@ -1556,7 +1556,7 @@ def login_by_sessionid():
     except RequestsJSONDecodeError:
         logger.exception("login_by_sessionid json decode -> likely challenge/html response")
         return jsonify({
-            'error': 'instagram_challenge',
+            'error': 'sessionid_challenge',
             'detail': 'instagram returned non-json response, likely challenge/checkpoint'
         }), 412
 
@@ -1565,7 +1565,7 @@ def login_by_sessionid():
         logger.exception("login_by_sessionid ClientError")
         if 'challenge' in msg.lower() or 'checkpoint' in msg.lower():
             return jsonify({
-                'error': 'instagram_challenge',
+                'error': 'sessionid_challenge',
                 'detail': msg
             }), 412
         return jsonify({
