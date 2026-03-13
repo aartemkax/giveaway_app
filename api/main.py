@@ -165,6 +165,26 @@ def _normalize_permalink(url: str) -> str | None:
 
     return f"https://{host}{path}"
 
+def _coerce_device_payload(raw_device: dict) -> dict:
+    raw_device = dict(raw_device or {})
+    nested_settings = raw_device.get("settings")
+    if isinstance(nested_settings, dict) and isinstance(nested_settings.get("device_settings"), dict):
+        settings = copy.deepcopy(nested_settings)
+        device_agent = (
+            raw_device.get("device_agent")
+            or settings.get("device_agent")
+            or settings.get("user_agent")
+            or "Instagram 269.0.0.18.75 Android"
+        )
+        settings["user_agent"] = settings.get("user_agent") or device_agent
+        return {
+            "settings": settings,
+            "device_agent": device_agent,
+            "region": raw_device.get("region") or settings.get("country") or "UA",
+            "input_platform": raw_device.get("input_platform") or raw_device.get("platform") or "android",
+        }
+    return emulate_device(raw_device, use_phone_code=True)
+
 @app.before_request
 def _log_request():
     hdrs = dict(request.headers)
@@ -254,7 +274,7 @@ def login():
     try:
         emu = session.get('emu_cache')
         if not emu:
-            emu = emulate_device(raw_device, use_phone_code=True)
+            emu = _coerce_device_payload(raw_device)
             session['emu_cache'] = emu
 
         settings = emu['settings']
@@ -1510,7 +1530,7 @@ def login_by_sessionid():
     try:
         emu = session.get('emu_cache')
         if not emu:
-            emu = emulate_device(raw_device, use_phone_code=True)
+            emu = _coerce_device_payload(raw_device)
             session['emu_cache'] = emu
 
         settings = emu['settings']
