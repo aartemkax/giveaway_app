@@ -7,6 +7,7 @@ import 'package:giveaway_app/utils/api_exception.dart';
 import 'package:giveaway_app/services/appapi/app_auth_service.dart';
 import 'package:giveaway_app/services/device_service.dart';
 import 'package:giveaway_app/utils/asset_paths.dart';
+import 'package:giveaway_app/screens/instagram_login_webview.dart';
 
 class PasswordLoginScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
@@ -21,12 +22,67 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
   final _passCtrl = TextEditingController();
   bool _loading = false;
   bool _obscure = true;
+  String? _challengeMessage;
 
   @override
   void dispose() {
     _userCtrl.dispose();
     _passCtrl.dispose();
     super.dispose();
+  }
+
+  String _sessionFallbackText(Locale locale) {
+    switch (locale.languageCode) {
+      case 'uk':
+        return 'Instagram просить додаткову перевірку. Використай вхід через sessionid у веб-переглядачі.';
+      case 'fr':
+        return 'Instagram demande une verification supplementaire. Utilisez la connexion via sessionid dans la vue web.';
+      default:
+        return 'Instagram requested additional verification. Use sessionid login in the web view.';
+    }
+  }
+
+  String _sessionFallbackButton(Locale locale) {
+    switch (locale.languageCode) {
+      case 'uk':
+        return 'Увійти через sessionid';
+      case 'fr':
+        return 'Se connecter via sessionid';
+      default:
+        return 'Login via sessionid';
+    }
+  }
+
+  String _sessionFallbackFailed(Locale locale) {
+    switch (locale.languageCode) {
+      case 'uk':
+        return 'Вхід через sessionid не вдався.';
+      case 'fr':
+        return 'La connexion via sessionid a echoue.';
+      default:
+        return 'Sessionid login failed.';
+    }
+  }
+
+  Future<void> _openSessionLogin() async {
+    final locale = Localizations.localeOf(context);
+    final ok = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const InstagramLoginWebView()),
+    );
+
+    if (!mounted) return;
+
+    if (ok == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed('/participants');
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(_sessionFallbackFailed(locale))),
+    );
   }
 
   Future<void> _submit() async {
@@ -41,7 +97,10 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
       return;
     }
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _challengeMessage = null;
+    });
 
     Map<String, dynamic> raw = {};
     Map<String, dynamic> emu = {};
@@ -49,7 +108,7 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
       raw = await DeviceService().collectFingerprint();
       emu = await DeviceService().emulateOnServer(raw);
     } catch (_) {
-      // ігноруємо fingerprint-збій
+      // ignore fingerprint failure
     }
 
     try {
@@ -61,6 +120,9 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
       Navigator.of(context).pushReplacementNamed('/participants');
     } on ApiException catch (e) {
       String msg;
+      final needsSessionFallback =
+          e.code == 'instagram_challenge' || e.code == 'suspicious_login';
+
       switch (e.code) {
         case 'invalid_credentials':
           msg = loc.error_invalid_credentials;
@@ -75,7 +137,13 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
         default:
           msg = loc.error_generic(e.code);
       }
+
       if (!mounted) return;
+
+      if (needsSessionFallback) {
+        setState(() => _challengeMessage = msg);
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -85,6 +153,7 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context)!;
+    final locale = Localizations.localeOf(context);
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -170,6 +239,39 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
                         )
                       : Text(loc.login_button),
                 ),
+                if (_challengeMessage != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color.fromARGB(220, 255, 255, 255),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _challengeMessage!,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(_sessionFallbackText(locale)),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _loading ? null : _openSessionLogin,
+                            icon: const Icon(Icons.open_in_browser),
+                            label: Text(_sessionFallbackButton(locale)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
