@@ -102,6 +102,7 @@ queue = Queue(connection=redis_conn)
 URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|reels|tv)/[^/]+/?$")
 LOGIN_TIMEOUT_SEC = int(os.getenv("LOGIN_TIMEOUT_SEC", "45"))
 PERMALINK_PATH_RE = re.compile(r"^/(p|reel|reels|tv)/[^/]+/?$")
+DEVICE_PIPELINE_VERSION = "2026-03-13-01"
 
 def _drop_query_param(url: str, name: str) -> str:
     p = urlparse(url)
@@ -167,6 +168,12 @@ def _normalize_permalink(url: str) -> str | None:
 
 def _coerce_device_payload(raw_device: dict) -> dict:
     raw_device = dict(raw_device or {})
+    logger.info(
+        "DEVICE_PIPELINE_VERSION=%s incoming device payload keys=%s nested_device_settings=%s",
+        DEVICE_PIPELINE_VERSION,
+        sorted(raw_device.keys()),
+        (raw_device.get("settings") or {}).get("device_settings"),
+    )
     nested_settings = raw_device.get("settings")
     if isinstance(nested_settings, dict) and isinstance(nested_settings.get("device_settings"), dict):
         settings = copy.deepcopy(nested_settings)
@@ -177,13 +184,24 @@ def _coerce_device_payload(raw_device: dict) -> dict:
             or "Instagram 269.0.0.18.75 Android"
         )
         settings["user_agent"] = settings.get("user_agent") or device_agent
+        logger.info(
+            "DEVICE_PIPELINE_VERSION=%s using nested device_settings=%s",
+            DEVICE_PIPELINE_VERSION,
+            settings.get("device_settings"),
+        )
         return {
             "settings": settings,
             "device_agent": device_agent,
             "region": raw_device.get("region") or settings.get("country") or "UA",
             "input_platform": raw_device.get("input_platform") or raw_device.get("platform") or "android",
         }
-    return emulate_device(raw_device, use_phone_code=True)
+    emu = emulate_device(raw_device, use_phone_code=True)
+    logger.info(
+        "DEVICE_PIPELINE_VERSION=%s emulated device_settings=%s",
+        DEVICE_PIPELINE_VERSION,
+        (emu.get("settings") or {}).get("device_settings"),
+    )
+    return emu
 
 @app.before_request
 def _log_request():
