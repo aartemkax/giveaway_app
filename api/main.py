@@ -270,6 +270,14 @@ def _json_nostore(payload, status=200):
     resp.headers["Cache-Control"] = "no-store"
     return resp, status
 
+@app.get("/api/runtime_info")
+def runtime_info():
+    return _json_nostore({
+        "device_pipeline_version": DEVICE_PIPELINE_VERSION,
+        "module_file": __file__,
+        "cwd": os.getcwd(),
+    }, 200)
+
 # ── LOGIN (instagrapi) ────────────────────────────────────────────────────────
 @app.route('/api/login', methods=['POST', 'OPTIONS'])
 def login():
