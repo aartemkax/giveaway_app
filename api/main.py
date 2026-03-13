@@ -203,6 +203,13 @@ def _coerce_device_payload(raw_device: dict) -> dict:
     )
     return emu
 
+def _resolve_login_device(raw_device: dict) -> dict:
+    # Always prefer the fresh client-provided payload over any older session cache.
+    emu = _coerce_device_payload(raw_device)
+    session['emu_cache'] = emu
+    session.modified = True
+    return emu
+
 @app.before_request
 def _log_request():
     hdrs = dict(request.headers)
@@ -298,11 +305,7 @@ def login():
     raw_device.setdefault("screen", {"width": 1080, "height": 1920, "pixelRatio": 3})
 
     try:
-        emu = session.get('emu_cache')
-        if not emu:
-            emu = _coerce_device_payload(raw_device)
-            session['emu_cache'] = emu
-
+        emu = _resolve_login_device(raw_device)
         settings = emu['settings']
         ua = emu.get('device_agent')
     except Exception as e:
@@ -1554,11 +1557,7 @@ def login_by_sessionid():
     raw_device.setdefault("screen", {"width": 1080, "height": 1920, "pixelRatio": 3})
 
     try:
-        emu = session.get('emu_cache')
-        if not emu:
-            emu = _coerce_device_payload(raw_device)
-            session['emu_cache'] = emu
-
+        emu = _resolve_login_device(raw_device)
         settings = emu['settings']
         ua = emu.get('device_agent') or settings.get('user_agent')
     except Exception as e:
