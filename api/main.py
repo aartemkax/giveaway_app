@@ -1,5 +1,6 @@
 # api/main.py
 from datetime import timedelta
+import copy
 import os
 import sys
 import json
@@ -107,19 +108,31 @@ def _drop_query_param(url: str, name: str) -> str:
     q = [(k,v) for (k,v) in parse_qsl(p.query, keep_blank_values=True) if k != name]
     return urlunparse((p.scheme, p.netloc, p.path, p.params, urlencode(q), p.fragment))
 
+def _apply_client_profile(cl: Client, settings: dict, ua: str | None, log_label: str) -> dict:
+    prepared = copy.deepcopy(settings or {})
+    prepared["cookies"] = dict(prepared.get("cookies") or {})
+    cl.set_settings(prepared)
+
+    device_settings = dict(prepared.get("device_settings") or {})
+    if device_settings:
+        cl.set_device(device_settings)
+
+    final_ua = ua or prepared.get("user_agent") or prepared.get("device_agent") or ""
+    if final_ua:
+        cl.set_user_agent(final_ua)
+        cl.private.headers.update({"User-Agent": cl.user_agent})
+
+    logger.info("%s instagrapi profile ua=%s device_settings=%s", log_label, cl.user_agent, cl.device_settings)
+    return prepared
+
 def _build_client_from_settings(settings: dict) -> Client:
     cl = Client()
-
-    if settings.get("device_settings"):
-        cl.set_device(settings["device_settings"])
-
-    cl.set_settings(settings)
-
-    ua = settings.get("user_agent") or settings.get("device_agent")
-    if ua:
-        cl.user_agent = ua
-        cl.private.headers.update({"User-Agent": ua})
-
+    _apply_client_profile(
+        cl,
+        settings,
+        settings.get("user_agent") or settings.get("device_agent"),
+        "session_status",
+    )
     cl.delay_range = [2, 5]
     return cl
 
@@ -172,15 +185,7 @@ def _log_response(resp):
 
 def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
     cl = Client()
-
-    if settings.get("device_settings"):
-        cl.set_device(settings["device_settings"])
-
-    settings["user_agent"] = ua
-    cl.set_settings(settings)
-
-    cl.user_agent = ua
-    cl.private.headers.update({"User-Agent": ua})
+    prepared_settings = _apply_client_profile(cl, settings, ua, f"login:{username}")
 
     logger.info("instagrapi login: start user=%s", username)
 
@@ -219,6 +224,7 @@ def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
 
     sess = cl.get_settings()
     sess["device_agent"] = ua
+    sess["device_settings"] = dict(cl.device_settings or prepared_settings.get("device_settings") or {})
     return sess
 
 def _json_nostore(payload, status=200):
@@ -1520,16 +1526,7 @@ def login_by_sessionid():
     logger.info("login_by_sessionid proxy=none")
 
     try:
-        if settings.get('device_settings'):
-            cl.set_device(settings['device_settings'])
-
-        settings['user_agent'] = ua
-        cl.set_settings(settings)
-
-        if ua:
-            cl.user_agent = ua
-            cl.private.headers.update({"User-Agent": ua})
-
+        prepared_settings = _apply_client_profile(cl, settings, ua, "login_by_sessionid")
         cl.delay_range = [2, 5]
 
         ok = cl.login_by_sessionid(sid)
@@ -1582,6 +1579,7 @@ def login_by_sessionid():
 
     session.permanent = True
     session['ig_settings'] = cl.get_settings()
+    session['ig_settings']['device_settings'] = dict(cl.device_settings or prepared_settings.get('device_settings') or {})
     session['emu_cache'] = {
         'settings': session['ig_settings'],
         'device_agent': cl.user_agent,
