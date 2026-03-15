@@ -131,7 +131,8 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
 
       switch (e.code) {
         case 'invalid_credentials':
-          msg = '${loc.error_invalid_credentials} ${_sessionFallbackText(locale)}';
+          msg =
+              '${loc.error_invalid_credentials} ${_sessionFallbackText(locale)}';
           break;
         case 'instagram_challenge':
         case 'suspicious_login':
