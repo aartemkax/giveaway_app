@@ -401,6 +401,45 @@ def admin_accounts():
         "proxy": proxy_payload,
     }), 200
 
+@app.route("/api/admin/accounts/from_current_session", methods=["POST", "OPTIONS"])
+def admin_account_from_current_session():
+    if request.method == "OPTIONS":
+        return "", 204
+
+    current_session = session.get("ig_settings") or {}
+    current_device = session.get("emu_cache") or {}
+    if not current_session:
+        return jsonify({
+            "error": "validation_error",
+            "detail": "active ig session required",
+        }), 400
+
+    data = request.get_json(silent=True) or {}
+    account_id = (data.get("account_id") or secrets.token_hex(8)).strip()
+    username = (data.get("instagram_username") or data.get("username") or "").strip()
+
+    record = affinity_store.sync_account_session(
+        account_id,
+        username,
+        current_session,
+        current_device,
+    )
+
+    proxy_id = (data.get("proxy_id") or "").strip()
+    proxy_payload = None
+    if proxy_id:
+        try:
+            record, proxy = affinity_store.bind_proxy(account_id, proxy_id)
+            proxy_payload = proxy.to_dict()
+        except KeyError as exc:
+            return jsonify({"error": "not_found", "detail": str(exc)}), 404
+
+    return jsonify({
+        "account": record.to_dict(),
+        "proxy": proxy_payload,
+        "source": "current_session",
+    }), 200
+
 @app.route("/api/admin/accounts/<account_id>", methods=["GET", "OPTIONS"])
 def admin_account_view(account_id):
     if request.method == "OPTIONS":
