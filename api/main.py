@@ -343,6 +343,7 @@ def login():
 
     except ClientError as e:
         msg = str(e)
+        msg_lower = msg.lower()
         suspicious = (
             "doesn't belong to an account",
             "Please check your username",
@@ -350,6 +351,12 @@ def login():
             "Не вдалося знайти обліковий запис",
             "не вдалося знайти",
         )
+        invalid_credential_markers = (
+            "we can't find an account with",
+            "try another mobile number or email",
+        )
+        if any(marker in msg_lower for marker in invalid_credential_markers):
+            return jsonify({'error': 'invalid_credentials'}), 401
         if any(s in msg for s in suspicious):
             return jsonify({'error': 'suspicious_login'}), 403
         logger.exception("ClientError during login")
