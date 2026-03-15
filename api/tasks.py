@@ -17,6 +17,7 @@ from instagrapi.exceptions import (
 )
 from redis import Redis
 import prometheus_client
+from account_affinity import AccountAffinityStore
 from device_emulator import emulate_device  # додано емулювання пристрою
 
 # регулярка для перевірки Instagram-лінку
@@ -25,6 +26,7 @@ URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|tv)/[^/]+/?$
 # Redis для кешу та бот-менеджменту
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_conn = Redis.from_url(redis_url)
+affinity_store = AccountAffinityStore(redis_conn)
 
 # Директорія з JSON-сесіями ботів
 BOT_SESSIONS_DIR = os.path.join(os.path.dirname(__file__), "bot_sessions")
@@ -52,6 +54,52 @@ CHALLENGE_EXCEPTIONS = prometheus_client.Counter(
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("instagrapi").setLevel(logging.INFO)
 
+def _restore_client_from_settings(user_settings: dict, proxy: str | None = None) -> Client:
+    cl = Client(proxy=proxy)
+    cl.delay_range = (2.0, 5.0)
+    cl.set_settings(user_settings)
+
+    device_settings = dict(user_settings.get("device_settings") or {})
+    if device_settings:
+        cl.set_device(device_settings)
+
+    ua = user_settings.get("user_agent") or user_settings.get("device_agent")
+    if ua:
+        cl.user_agent = ua
+        cl.private.headers.update({"User-Agent": ua})
+    logging.info(">>> instagrapi client UA=%s proxy=%s", cl.user_agent, "set" if proxy else "none")
+    return cl
+
+def _fetch_participants_with_client(cl: Client, post_url: str):
+    if not URL_PATTERN.match(post_url):
+        return {"error": "invalid_post_url"}
+
+    try:
+        media_id = cl.media_pk_from_url(post_url)
+    except Exception:
+        return {"error": "invalid_post_url"}
+
+    try:
+        comments = cl.media_comments(media_id, amount=0)
+    except PleaseWaitFewMinutes:
+        RATE_LIMIT_EXCEPTIONS.inc()
+        return {"error": "rate_limited"}
+    except Exception as e:
+        logging.exception("Error fetching comments")
+        return {"error": "internal_error", "detail": str(e)}
+
+    participants = []
+    seen = set()
+    for c in comments:
+        uname = c.user.username
+        if uname not in seen:
+            seen.add(uname)
+            participants.append({
+                "username": uname,
+                "profile_pic_url": str(c.user.profile_pic_url)
+            })
+    return participants
+
 def fetch_participants_task(
     settings_b64: str,
     post_url: str,
@@ -68,15 +116,12 @@ def fetch_participants_task(
         return {"error": "invalid_session_settings"}
 
     proxy = random.choice(PROXIES) if use_proxy and PROXIES else None
-    cl = Client(proxy=proxy)
-    cl.delay_range = (2.0, 5.0)
+    cl = _restore_client_from_settings(user_settings, proxy=proxy)
 
     # Встановлюємо налаштування сесії
-    cl.set_settings(user_settings)
     ua = user_settings.get("user_agent")
-    if ua:
-        cl.user_agent = ua
-        cl.private.headers.update({"User-Agent": ua})
+    logging.info(">>> fetch task using restored session")
+    return _fetch_participants_with_client(cl, post_url)
     logging.info(">>> fetch таск використовує UA=%s", cl.user_agent)
 
     # Валідація URL
@@ -113,3 +158,42 @@ def fetch_participants_task(
 
 
     return participants
+
+
+def fetch_account_participants_task(account_id: str, post_url: str):
+    if not affinity_store.acquire_account_lock(account_id, ttl_sec=900):
+        return {"error": "account_busy"}
+
+    try:
+        context = affinity_store.get_account_context(account_id)
+        if not context:
+            return {"error": "account_not_found"}
+
+        account = context["account"]
+        session_settings = dict(context["session_settings"] or {})
+        if not session_settings:
+            return {"error": "invalid_session_settings"}
+
+        proxy = context["proxy_url"]
+        cl = _restore_client_from_settings(session_settings, proxy=proxy)
+        result = _fetch_participants_with_client(cl, post_url)
+
+        if isinstance(result, dict) and result.get("error") == "rate_limited":
+            affinity_store.mark_account_result(
+                account_id,
+                status="cooldown",
+                cooldown_until=int(time.time()) + 15 * 60,
+            )
+        elif isinstance(result, dict) and result.get("error"):
+            affinity_store.mark_account_result(account_id, status=account.status)
+        else:
+            affinity_store.mark_account_result(
+                account_id,
+                status="active",
+                challenge_reason=None,
+                cooldown_until=None,
+                last_success=True,
+            )
+        return result
+    finally:
+        affinity_store.release_account_lock(account_id)

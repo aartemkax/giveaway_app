@@ -31,7 +31,8 @@ from instagrapi.exceptions import (
 )
 
 from device_emulator import emulate_device
-from tasks import fetch_participants_task
+from account_affinity import AccountAffinityStore, ProxyRecord
+from tasks import fetch_participants_task, fetch_account_participants_task
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse, unquote
 from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 
@@ -127,6 +128,7 @@ CORS(
 # ── Redis & RQ ────────────────────────────────────────────────────────────────
 redis_conn = Redis.from_url(redis_url, **_tls)
 queue = Queue(connection=redis_conn)
+affinity_store = AccountAffinityStore(redis_conn)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|reels|tv)/[^/]+/?$")
@@ -335,6 +337,151 @@ def runtime_info():
         "use_proxy": USE_PROXY,
         "proxy_count": len(PROXIES),
     }, 200)
+
+@app.route("/api/admin/proxies", methods=["GET", "POST", "OPTIONS"])
+def admin_proxies():
+    if request.method == "OPTIONS":
+        return "", 204
+
+    if request.method == "GET":
+        rows = [row.to_dict() for row in affinity_store.list_proxies()]
+        return jsonify({"items": rows, "count": len(rows)}), 200
+
+    data = request.get_json(silent=True) or {}
+    proxy_url = (data.get("proxy_url") or "").strip()
+    if not proxy_url:
+        return jsonify({"error": "validation_error", "detail": "proxy_url required"}), 400
+
+    record = ProxyRecord(
+        proxy_id=(data.get("proxy_id") or secrets.token_hex(8)).strip(),
+        proxy_url=proxy_url,
+        region=(data.get("region") or "").strip(),
+        proxy_type=(data.get("proxy_type") or "residential").strip(),
+        status=(data.get("status") or "active").strip(),
+    )
+    affinity_store.put_proxy(record)
+    return jsonify({"proxy": record.to_dict()}), 200
+
+@app.route("/api/admin/accounts", methods=["GET", "POST", "OPTIONS"])
+def admin_accounts():
+    if request.method == "OPTIONS":
+        return "", 204
+
+    if request.method == "GET":
+        rows = [row.to_dict() for row in affinity_store.list_accounts()]
+        return jsonify({"items": rows, "count": len(rows)}), 200
+
+    data = request.get_json(silent=True) or {}
+    account_id = (data.get("account_id") or secrets.token_hex(8)).strip()
+    username = (data.get("instagram_username") or data.get("username") or "").strip()
+    session_settings = data.get("session_settings") or session.get("ig_settings") or {}
+    device_profile = data.get("device_profile") or data.get("deviceInfo") or session.get("emu_cache") or {}
+
+    if not session_settings:
+        return jsonify({"error": "validation_error", "detail": "session_settings or active session required"}), 400
+
+    record = affinity_store.sync_account_session(
+        account_id,
+        username,
+        session_settings,
+        device_profile,
+    )
+
+    proxy_id = (data.get("proxy_id") or "").strip()
+    proxy_payload = None
+    if proxy_id:
+        try:
+            record, proxy = affinity_store.bind_proxy(account_id, proxy_id)
+            proxy_payload = proxy.to_dict()
+        except KeyError as exc:
+            return jsonify({"error": "not_found", "detail": str(exc)}), 404
+
+    return jsonify({
+        "account": record.to_dict(),
+        "proxy": proxy_payload,
+    }), 200
+
+@app.route("/api/admin/accounts/<account_id>", methods=["GET", "OPTIONS"])
+def admin_account_view(account_id):
+    if request.method == "OPTIONS":
+        return "", 204
+
+    record = affinity_store.get_account(account_id)
+    if not record:
+        return jsonify({"error": "not_found", "detail": "account not found"}), 404
+    proxy = affinity_store.get_proxy(record.proxy_id) if record.proxy_id else None
+    return jsonify({
+        "account": record.to_dict(),
+        "proxy": proxy.to_dict() if proxy else None,
+    }), 200
+
+@app.route("/api/admin/accounts/<account_id>/bind_proxy", methods=["POST", "OPTIONS"])
+def admin_bind_proxy(account_id):
+    if request.method == "OPTIONS":
+        return "", 204
+
+    data = request.get_json(silent=True) or {}
+    proxy_id = (data.get("proxy_id") or "").strip()
+    if not proxy_id:
+        return jsonify({"error": "validation_error", "detail": "proxy_id required"}), 400
+
+    try:
+        account, proxy = affinity_store.bind_proxy(account_id, proxy_id)
+    except KeyError as exc:
+        return jsonify({"error": "not_found", "detail": str(exc)}), 404
+
+    return jsonify({
+        "account": account.to_dict(),
+        "proxy": proxy.to_dict(),
+    }), 200
+
+@app.route("/api/admin/accounts/<account_id>/sync_session", methods=["POST", "OPTIONS"])
+def admin_sync_account_session(account_id):
+    if request.method == "OPTIONS":
+        return "", 204
+
+    data = request.get_json(silent=True) or {}
+    username = (data.get("instagram_username") or data.get("username") or "").strip()
+    session_settings = data.get("session_settings") or session.get("ig_settings") or {}
+    device_profile = data.get("device_profile") or data.get("deviceInfo") or session.get("emu_cache") or {}
+
+    if not session_settings:
+        return jsonify({"error": "validation_error", "detail": "session_settings or active session required"}), 400
+
+    record = affinity_store.sync_account_session(
+        account_id,
+        username,
+        session_settings,
+        device_profile,
+    )
+    return jsonify({"account": record.to_dict()}), 200
+
+@app.route("/api/admin/accounts/<account_id>/fetch_participants_async", methods=["POST", "OPTIONS"])
+def admin_account_fetch_async(account_id):
+    if request.method == "OPTIONS":
+        return "", 204
+
+    record = affinity_store.get_account(account_id)
+    if not record:
+        return jsonify({"error": "not_found", "detail": "account not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    post_url = (data.get("post_url") or "").strip()
+    if post_url and not post_url.endswith("/"):
+        post_url += "/"
+
+    if not URL_PATTERN.match(post_url):
+        return jsonify({"error": "invalid_post_url"}), 400
+
+    job = queue.enqueue(
+        fetch_account_participants_task,
+        account_id,
+        post_url,
+        job_timeout=600,
+        result_ttl=3600,
+    )
+    logger.info("AFFINITY_FETCH: enqueued job_id=%s account_id=%s url=%s", job.id, account_id, post_url)
+    return jsonify({"job_id": job.id, "account_id": account_id}), 202
 
 # ── LOGIN (instagrapi) ────────────────────────────────────────────────────────
 @app.route('/api/login', methods=['POST', 'OPTIONS'])
