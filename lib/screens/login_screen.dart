@@ -33,11 +33,12 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _openInstagramWebLogin({bool retryIfNoSession = true}) async {
     if (_loading) return;
     setState(() => _loading = true);
+    Map<String, dynamic>? emu;
 
     // 1) Прогріваємо девайс на бекенді (emu_cache в сесії)
     try {
       final raw = await DeviceService().collectFingerprint();
-      await DeviceService().emulateOnServer(raw);
+      emu = await DeviceService().emulateOnServer(raw);
     } catch (_) {
       // не блокуємо логін, якщо прогрів не вдався
     }
@@ -46,7 +47,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     // 2) Відкриваємо Instagram WebView
     final ok = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const InstagramLoginWebView()),
+      MaterialPageRoute(
+        builder: (_) => InstagramLoginWebView(deviceInfo: emu),
+      ),
     );
 
     if (!mounted) {

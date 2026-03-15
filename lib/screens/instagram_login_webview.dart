@@ -6,7 +6,9 @@ import 'package:giveaway_app/services/api_client.dart';
 import 'package:giveaway_app/utils/api_exception.dart';
 
 class InstagramLoginWebView extends StatefulWidget {
-  const InstagramLoginWebView({super.key});
+  final Map<String, dynamic>? deviceInfo;
+
+  const InstagramLoginWebView({super.key, this.deviceInfo});
   @override
   State<InstagramLoginWebView> createState() => _InstagramLoginWebViewState();
 }
@@ -87,10 +89,7 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
                   Navigator.of(context).pop(true);
                   return;
                 }
-                setState(() {
-                  _apiError = code;
-                  _sent = false;
-                });
+                setState(() => _apiError = code);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text(_sessionErrorText(locale, code))),
                 );
@@ -149,9 +148,13 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
 
   Future<String?> _sendSessionIdToApi(String sessionId) async {
     try {
-      await ApiClient()
-          .dio
-          .post('/api/login_by_sessionid', data: {'sessionid': sessionId});
+      await ApiClient().dio.post(
+        '/api/login_by_sessionid',
+        data: {
+          'sessionid': sessionId,
+          if (widget.deviceInfo != null) 'deviceInfo': widget.deviceInfo,
+        },
+      );
       return null;
     } on DioException catch (e) {
       return ApiException.fromDio(e).code;

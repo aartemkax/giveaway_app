@@ -23,6 +23,7 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
   bool _loading = false;
   bool _obscure = true;
   String? _challengeMessage;
+  Map<String, dynamic>? _lastDeviceInfo;
 
   @override
   void dispose() {
@@ -67,7 +68,9 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
   Future<void> _openSessionLogin() async {
     final locale = Localizations.localeOf(context);
     final ok = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const InstagramLoginWebView()),
+      MaterialPageRoute(
+        builder: (_) => InstagramLoginWebView(deviceInfo: _lastDeviceInfo),
+      ),
     );
 
     if (!mounted) return;
@@ -108,6 +111,7 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
     try {
       raw = await DeviceService().collectFingerprint();
       emu = await DeviceService().emulateOnServer(raw);
+      _lastDeviceInfo = emu;
     } catch (_) {
       // ignore fingerprint failure
     }
