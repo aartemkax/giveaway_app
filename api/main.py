@@ -40,9 +40,39 @@ load_dotenv()  # ВАЖЛИВО: до імпорту fb_graph
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("api")
 
-USE_PROXY = False
-PROXIES = []
-logger.info("Public proxy rotation disabled")
+def _parse_proxy_list(raw: str | None) -> list[str]:
+    value = (raw or "").strip()
+    if not value:
+        return []
+    if value.startswith("["):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except Exception:
+            logger.warning("Failed to parse proxy JSON list")
+    parts = re.split(r"[\r\n,;]+", value)
+    return [part.strip() for part in parts if part.strip()]
+
+def _mask_proxy(proxy: str | None) -> str:
+    if not proxy:
+        return "none"
+    try:
+        p = urlparse(proxy)
+        host = p.hostname or ""
+        port = f":{p.port}" if p.port else ""
+        scheme = f"{p.scheme}://" if p.scheme else ""
+        return f"{scheme}{host}{port}"
+    except Exception:
+        return "<invalid-proxy>"
+
+PROXIES = (
+    _parse_proxy_list(os.getenv("INSTAGRAM_AUTH_PROXIES"))
+    or _parse_proxy_list(os.getenv("INSTAGRAM_PROXIES"))
+    or _parse_proxy_list(os.getenv("PROXIES"))
+)
+USE_PROXY = bool(PROXIES) and os.getenv("USE_PROXY", "true").lower() not in {"0", "false", "no"}
+logger.info("Proxy auth %s (%s configured)", "enabled" if USE_PROXY else "disabled", len(PROXIES))
 
 # ── FB Graph (імпорт після dotenv) ────────────────────────────────────────────
 fb_import_error = None
@@ -224,6 +254,11 @@ def _extract_client_ip(req) -> tuple[str, str]:
     remote_addr = (req.remote_addr or "").strip()
     return remote_addr, "remote_addr"
 
+def _choose_proxy() -> str | None:
+    if not USE_PROXY or not PROXIES:
+        return None
+    return random.choice(PROXIES)
+
 @app.before_request
 def _log_request():
     hdrs = dict(request.headers)
@@ -242,8 +277,8 @@ def _log_response(resp):
     logger.info("<< %s %s -> %s", request.method, request.path, resp.status)
     return resp
 
-def _do_login(username: str, password: str, settings: dict, ua: str) -> dict:
-    cl = Client()
+def _do_login(username: str, password: str, settings: dict, ua: str, proxy: str | None = None) -> dict:
+    cl = Client(proxy=proxy)
     prepared_settings = _apply_client_profile(cl, settings, ua, f"login:{username}")
 
     logger.info("instagrapi login: start user=%s", username)
@@ -297,6 +332,8 @@ def runtime_info():
         "device_pipeline_version": DEVICE_PIPELINE_VERSION,
         "module_file": __file__,
         "cwd": os.getcwd(),
+        "use_proxy": USE_PROXY,
+        "proxy_count": len(PROXIES),
     }, 200)
 
 # ── LOGIN (instagrapi) ────────────────────────────────────────────────────────
@@ -326,11 +363,12 @@ def login():
         logger.exception("emulate_device failed")
         return jsonify({'error': 'invalid_device_info', 'detail': str(e)}), 400
 
-    logger.info("login proxy=none")
+    proxy = _choose_proxy()
+    logger.info("login proxy=%s", _mask_proxy(proxy))
 
     try:
         with futures.ThreadPoolExecutor(max_workers=1) as ex:
-            fut = ex.submit(_do_login, username, password, settings, ua)
+            fut = ex.submit(_do_login, username, password, settings, ua, proxy)
             session_settings = fut.result(timeout=LOGIN_TIMEOUT_SEC)
 
     except futures.TimeoutError:
@@ -1591,8 +1629,9 @@ def login_by_sessionid():
             'detail': str(e)
         }), 400
 
-    cl = Client()
-    logger.info("login_by_sessionid proxy=none")
+    proxy = _choose_proxy()
+    cl = Client(proxy=proxy)
+    logger.info("login_by_sessionid proxy=%s", _mask_proxy(proxy))
 
     try:
         prepared_settings = _apply_client_profile(cl, settings, ua, "login_by_sessionid")
