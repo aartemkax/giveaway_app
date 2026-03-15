@@ -87,6 +87,7 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
 
   Future<void> _submit() async {
     final loc = AppLocalizations.of(context)!;
+    final locale = Localizations.localeOf(context);
     final u = _userCtrl.text.trim();
     final p = _passCtrl.text.trim();
 
