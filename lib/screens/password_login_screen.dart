@@ -120,12 +120,13 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
       Navigator.of(context).pushReplacementNamed('/participants');
     } on ApiException catch (e) {
       String msg;
-      final needsSessionFallback =
-          e.code == 'instagram_challenge' || e.code == 'suspicious_login';
+      final needsSessionFallback = e.code == 'instagram_challenge' ||
+          e.code == 'suspicious_login' ||
+          e.code == 'invalid_credentials';
 
       switch (e.code) {
         case 'invalid_credentials':
-          msg = loc.error_invalid_credentials;
+          msg = '${loc.error_invalid_credentials} ${_sessionFallbackText(locale)}';
           break;
         case 'instagram_challenge':
         case 'suspicious_login':
