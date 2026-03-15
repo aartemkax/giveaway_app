@@ -1556,7 +1556,9 @@ def login_by_sessionid():
             'detail': 'sessionid must be raw cookie value, not encoded'
         }), 400
 
-    raw_device = data.get('deviceInfo') or {}
+    raw_device = copy.deepcopy(data.get('deviceInfo') or {})
+    if not raw_device:
+        raw_device = copy.deepcopy(session.get('emu_cache') or {})
     raw_device.setdefault("userAgent", "Instagram 269.0.0.18.75 Android")
     raw_device.setdefault("platform", "Android")
     raw_device.setdefault("locale", "uk-UA")
