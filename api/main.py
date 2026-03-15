@@ -210,6 +210,20 @@ def _resolve_login_device(raw_device: dict) -> dict:
     session.modified = True
     return emu
 
+def _extract_client_ip(req) -> tuple[str, str]:
+    fastly_ip = (req.headers.get("Fastly-Client-Ip") or "").strip()
+    if fastly_ip:
+        return fastly_ip, "Fastly-Client-Ip"
+
+    xff = (req.headers.get("X-Forwarded-For") or "").strip()
+    if xff:
+        first_ip = xff.split(",")[0].strip()
+        if first_ip:
+            return first_ip, "X-Forwarded-For"
+
+    remote_addr = (req.remote_addr or "").strip()
+    return remote_addr, "remote_addr"
+
 @app.before_request
 def _log_request():
     hdrs = dict(request.headers)
@@ -417,13 +431,14 @@ def session_status():
 def collect_device_geo():
     if request.method == 'OPTIONS':
         return '', 204
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    ip, ip_source = _extract_client_ip(request)
+    logger.info("collect_device_geo resolved ip=%s source=%s", ip, ip_source)
     try:
         import requests as _rq
         geo = _rq.get(f"https://ipwho.is/{ip}", timeout=2).json()
     except Exception:
         geo = {}
-    return jsonify({"geo": geo, "ip": ip})
+    return jsonify({"geo": geo, "ip": ip, "ip_source": ip_source})
 
 @app.route('/api/device_report', methods=['POST', 'OPTIONS'])
 def device_report():
