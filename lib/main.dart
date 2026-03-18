@@ -7,7 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:giveaway_app/l10n/app_localizations.dart';
 import 'package:giveaway_app/services/api_client.dart';
 import 'package:giveaway_app/services/auth_service.dart';
+import 'package:giveaway_app/utils/constants.dart';
 
+import 'screens/debug_env_screen.dart';
 import 'screens/login/app_login_screen.dart';
 import 'screens/login/participants_screen.dart';
 import 'screens/password_login_screen.dart';
@@ -84,7 +86,7 @@ final authStateProvider = FutureProvider<AuthState>((ref) async {
       }
     }
   } catch (_) {
-    // Р±РµРє РЅРµРґРѕСЃС‚СѓРїРЅРёР№ Р°Р±Рѕ РїРѕРјРёР»РєР° РїРµСЂРµРІС–СЂРєРё
+    // бек недоступний або помилка перевірки
   }
 
   await prefs.remove('auth_method');
@@ -113,6 +115,9 @@ class MyApp extends ConsumerWidget {
       locale: locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
+      builder: (context, child) => _EnvBadgeOverlay(
+        child: child ?? const SizedBox.shrink(),
+      ),
       initialRoute: '/',
       routes: {
         '/': (_) => StartupGate(
@@ -135,7 +140,64 @@ class MyApp extends ConsumerWidget {
         '/fb_home': (_) => const FbHomeScreen(),
         '/ig_media': (_) => const IgMediaScreen(),
         '/ig_comments': (_) => const IgCommentsScreen(),
+        '/debug_env': (_) => const DebugEnvScreen(),
       },
     );
+  }
+}
+
+class _EnvBadgeOverlay extends StatelessWidget {
+  final Widget child;
+
+  const _EnvBadgeOverlay({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        child,
+        Positioned(
+          top: 0,
+          right: 0,
+          child: SafeArea(
+            minimum: const EdgeInsets.only(top: 8, right: 8),
+            child: Material(
+              color: _environmentColor(apiEnvironmentLabel),
+              elevation: 4,
+              borderRadius: BorderRadius.circular(999),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () => Navigator.of(context).pushNamed('/debug_env'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Text(
+                    apiEnvironmentLabel,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+Color _environmentColor(String label) {
+  switch (label) {
+    case 'STAGE':
+      return const Color(0xFFD97706);
+    case 'PROD':
+      return const Color(0xFFB91C1C);
+    case 'LOCAL':
+      return const Color(0xFF1D4ED8);
+    default:
+      return const Color(0xFF6D28D9);
   }
 }

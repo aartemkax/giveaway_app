@@ -106,3 +106,8 @@ build/
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
+
+# Node / Playwright
+node_modules/
+playwright-report/
+test-results/

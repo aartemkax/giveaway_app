@@ -1,0 +1,13 @@
+{
+  "name": "giveaway-app-playwright-tests",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test:api": "playwright test",
+    "test:api:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.6.0"
+  }
+}
