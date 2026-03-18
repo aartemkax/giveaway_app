@@ -1,4 +1,4 @@
-// lib/main.dart
+п»ї// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,15 +10,16 @@ import 'package:giveaway_app/services/auth_service.dart';
 import 'package:giveaway_app/utils/constants.dart';
 
 import 'screens/debug_env_screen.dart';
+import 'screens/fb_home_screen.dart';
+import 'screens/ig_comments_screen.dart';
+import 'screens/ig_media_screen.dart';
 import 'screens/login/app_login_screen.dart';
+import 'screens/login/fb_oauth_screen.dart';
 import 'screens/login/participants_screen.dart';
 import 'screens/password_login_screen.dart';
-import 'screens/login/fb_oauth_screen.dart';
-import 'screens/fb_home_screen.dart';
-import 'screens/ig_media_screen.dart';
-import 'screens/ig_comments_screen.dart';
 
 final localeProvider = StateProvider<Locale>((ref) => const Locale('uk'));
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 typedef AuthState = ({bool isLoggedIn, String authMethod});
 
@@ -86,7 +87,7 @@ final authStateProvider = FutureProvider<AuthState>((ref) async {
       }
     }
   } catch (_) {
-    // бек недоступний або помилка перевірки
+    // Backend unreachable or auth check failed.
   }
 
   await prefs.remove('auth_method');
@@ -111,6 +112,7 @@ class MyApp extends ConsumerWidget {
     final locale = ref.watch(localeProvider);
 
     return MaterialApp(
+      navigatorKey: rootNavigatorKey,
       title: 'Giveaway App',
       locale: locale,
       supportedLocales: AppLocalizations.supportedLocales,
@@ -121,20 +123,16 @@ class MyApp extends ConsumerWidget {
       initialRoute: '/',
       routes: {
         '/': (_) => StartupGate(
-              onLocaleChanged: (l) =>
-                  ref.read(localeProvider.notifier).state = l,
+              onLocaleChanged: (l) => ref.read(localeProvider.notifier).state = l,
             ),
         '/login': (_) => AppLoginScreen(
-              onLocaleChanged: (l) =>
-                  ref.read(localeProvider.notifier).state = l,
+              onLocaleChanged: (l) => ref.read(localeProvider.notifier).state = l,
             ),
         '/participants': (_) => ParticipantsScreen(
-              onLocaleChanged: (l) =>
-                  ref.read(localeProvider.notifier).state = l,
+              onLocaleChanged: (l) => ref.read(localeProvider.notifier).state = l,
             ),
         '/password_login': (_) => PasswordLoginScreen(
-              onLocaleChanged: (l) =>
-                  ref.read(localeProvider.notifier).state = l,
+              onLocaleChanged: (l) => ref.read(localeProvider.notifier).state = l,
             ),
         '/fb_oauth': (_) => const FbOAuthScreen(),
         '/fb_home': (_) => const FbHomeScreen(),
@@ -167,7 +165,7 @@ class _EnvBadgeOverlay extends StatelessWidget {
               borderRadius: BorderRadius.circular(999),
               child: InkWell(
                 borderRadius: BorderRadius.circular(999),
-                onTap: () => Navigator.of(context).pushNamed('/debug_env'),
+                onTap: () => rootNavigatorKey.currentState?.pushNamed('/debug_env'),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: Text(
