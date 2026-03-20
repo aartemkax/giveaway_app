@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:giveaway_app/services/api_client.dart';
 import 'package:giveaway_app/utils/constants.dart';
@@ -11,28 +12,30 @@ import '../../utils/api_exception.dart';
 class ParticipantsService {
   final Dio _dio;
 
-  // За замовчуванням беремо спільний клієнт
   ParticipantsService() : _dio = ApiClient().dio;
 
-  // Для DI через провайдери
   ParticipantsService.withDio(this._dio);
 
   Future<List<Participant>> fetchParticipants(
     String postUrl, {
-    BuildContext? context, // не використовується, але залишимо як опційний
+    BuildContext? context,
   }) async {
     try {
       final normalized = _normalizePostUrl(postUrl);
+      final prefs = await SharedPreferences.getInstance();
+      final activeAccountId =
+          (prefs.getString('active_account_id') ?? '').trim();
+      final startPath = activeAccountId.isNotEmpty
+          ? '/api/admin/accounts/$activeAccountId/fetch_participants_async'
+          : '/api/fetch_participants_async';
 
-      // 1) старт асинхронної джоби
       final start = await _dio.post(
-        '/api/fetch_participants_async',
+        startPath,
         data: {'post_url': normalized},
       );
 
       if (start.statusCode != 202 || start.data is! Map) {
-        throw ApiException('unknown_error',
-            detail: 'unexpected start response');
+        throw ApiException('unknown_error', detail: 'unexpected start response');
       }
 
       final jobId = (start.data['job_id'] ?? '') as String;
@@ -40,7 +43,6 @@ class ParticipantsService {
         throw ApiException('unknown_error', detail: 'empty job id');
       }
 
-      // 2) полінг статусу
       final statusPath = '/api/job_status/$jobId';
       const pollEvery = Duration(seconds: 2);
       const maxWait = Duration(seconds: 90);
@@ -64,7 +66,6 @@ class ParticipantsService {
         }
       }
 
-      // 3) результат
       final res = await _dio.get('/api/job_result/$jobId');
 
       if (res.statusCode == 200 && res.data is Map) {
@@ -89,14 +90,14 @@ class ParticipantsService {
         throw ApiException(code, detail: detail);
       }
 
-      throw ApiException('server_error',
-          detail: 'code ${res.statusCode}: unexpected result');
+      throw ApiException(
+        'server_error',
+        detail: 'code ${res.statusCode}: unexpected result',
+      );
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
     }
   }
-
-  // ——— helpers ———
 
   String _normalizePostUrl(String url) {
     var u = url.trim();

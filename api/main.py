@@ -440,6 +440,67 @@ def admin_account_from_current_session():
         "source": "current_session",
     }), 200
 
+@app.route("/api/admin/accounts/from_sessionid", methods=["POST", "OPTIONS"])
+def admin_account_from_sessionid():
+    if request.method == "OPTIONS":
+        return "", 204
+
+    data = request.get_json(silent=True) or {}
+    sessionid = unquote((data.get("sessionid") or "").strip())
+    if not sessionid:
+        return jsonify({
+            "error": "validation_error",
+            "detail": "sessionid required",
+        }), 400
+
+    device_info = data.get("deviceInfo") or {}
+    session_settings = dict(device_info.get("settings") or {})
+    if not session_settings:
+        return jsonify({
+            "error": "validation_error",
+            "detail": "deviceInfo.settings required",
+        }), 400
+
+    cookies = dict(session_settings.get("cookies") or {})
+    cookies["sessionid"] = sessionid
+    session_settings["cookies"] = cookies
+
+    device_agent = (
+        device_info.get("device_agent")
+        or device_info.get("userAgent")
+        or session_settings.get("user_agent")
+    )
+    if device_agent and not session_settings.get("user_agent"):
+        session_settings["user_agent"] = device_agent
+
+    account_id = (data.get("account_id") or secrets.token_hex(8)).strip()
+    username = (data.get("instagram_username") or data.get("username") or "").strip()
+
+    record = affinity_store.sync_account_session(
+        account_id,
+        username,
+        session_settings,
+        device_info,
+    )
+    record.status = "unverified"
+    record.notes = "source=sessionid"
+    affinity_store.put_account(record)
+
+    proxy_id = (data.get("proxy_id") or "").strip()
+    proxy_payload = None
+    if proxy_id:
+        try:
+            record, proxy = affinity_store.bind_proxy(account_id, proxy_id)
+            proxy_payload = proxy.to_dict()
+        except KeyError as exc:
+            return jsonify({"error": "not_found", "detail": str(exc)}), 404
+
+    return jsonify({
+        "account": record.to_dict(),
+        "proxy": proxy_payload,
+        "source": "sessionid",
+    }), 200
+
 @app.route("/api/admin/accounts/<account_id>", methods=["GET", "OPTIONS"])
 def admin_account_view(account_id):
     if request.method == "OPTIONS":

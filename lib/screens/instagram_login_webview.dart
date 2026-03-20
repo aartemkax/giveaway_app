@@ -2,13 +2,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:dio/dio.dart';
-import 'package:giveaway_app/services/api_client.dart';
+import 'package:giveaway_app/services/appapi/app_auth_service.dart';
 import 'package:giveaway_app/utils/api_exception.dart';
 
 class InstagramLoginWebView extends StatefulWidget {
   final Map<String, dynamic>? deviceInfo;
+  final String? instagramUsername;
 
-  const InstagramLoginWebView({super.key, this.deviceInfo});
+  const InstagramLoginWebView({
+    super.key,
+    this.deviceInfo,
+    this.instagramUsername,
+  });
   @override
   State<InstagramLoginWebView> createState() => _InstagramLoginWebViewState();
 }
@@ -148,12 +153,10 @@ class _InstagramLoginWebViewState extends State<InstagramLoginWebView> {
 
   Future<String?> _sendSessionIdToApi(String sessionId) async {
     try {
-      await ApiClient().dio.post(
-        '/api/login_by_sessionid',
-        data: {
-          'sessionid': sessionId,
-          if (widget.deviceInfo != null) 'deviceInfo': widget.deviceInfo,
-        },
+      await AuthService().createAccountFromSessionId(
+        sessionId,
+        instagramUsername: widget.instagramUsername,
+        deviceInfo: widget.deviceInfo,
       );
       return null;
     } on DioException catch (e) {

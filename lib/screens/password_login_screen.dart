@@ -69,7 +69,10 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
     final locale = Localizations.localeOf(context);
     final ok = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => InstagramLoginWebView(deviceInfo: _lastDeviceInfo),
+        builder: (_) => InstagramLoginWebView(
+          deviceInfo: _lastDeviceInfo,
+          instagramUsername: _userCtrl.text.trim(),
+        ),
       ),
     );
 

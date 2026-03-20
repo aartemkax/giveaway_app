@@ -86,6 +86,13 @@ final authStateProvider = FutureProvider<AuthState>((ref) async {
         return (isLoggedIn: true, authMethod: 'ig');
       }
     }
+
+    if (authMethod == 'ig_account') {
+      final ok = await AuthService().hasActiveAccount();
+      if (ok) {
+        return (isLoggedIn: true, authMethod: 'ig_account');
+      }
+    }
   } catch (_) {
     // Backend unreachable or auth check failed.
   }
