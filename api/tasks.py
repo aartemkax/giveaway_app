@@ -21,7 +21,7 @@ from account_affinity import AccountAffinityStore
 from device_emulator import emulate_device  # додано емулювання пристрою
 
 # регулярка для перевірки Instagram-лінку
-URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|tv)/[^/]+/?$")
+URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|reels|tv)/[^/]+/?$")
 
 # Redis для кешу та бот-менеджменту
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")

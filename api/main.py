@@ -574,7 +574,7 @@ def admin_account_fetch_async(account_id):
         return jsonify({"error": "invalid_post_url"}), 400
 
     job = queue.enqueue(
-        fetch_account_participants_task,
+        "tasks.fetch_account_participants_task",
         account_id,
         post_url,
         job_timeout=600,
