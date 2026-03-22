@@ -1,3 +1,4 @@
+// Active screen: current app entry/login selector wired from main.dart.
 // lib/screens/login/app_login_screen.dart
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';

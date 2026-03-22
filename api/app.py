@@ -1,4 +1,17 @@
-# app.py
+"""Legacy Flask app stub.
+
+Do not use this file for new backend work.
+
+Canonical backend entrypoint:
+- api/main.py
+
+Reason:
+- repository configs and docs point to api/main.py / main:app
+- this file only duplicates a small subset of backend behavior
+
+Keep temporarily until any external dependency outside the repository is ruled out.
+"""
+
 import os
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS

@@ -1,3 +1,5 @@
+// Legacy screen: older participants flow using older service wiring.
+// Keep only until dedicated screen cleanup.
 // lib/screens/participants_screen.dart
 
 import 'dart:math';

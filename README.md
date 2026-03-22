@@ -115,6 +115,22 @@ python -m rq worker --with-scheduler -u "$REDIS_URL" -P .
 
 The production-style commands are also documented in [api/Procfile](/Users/starlord/giveaway_app/api/Procfile).
 
+## Deployment Notes
+
+Current canonical deploy files:
+
+- [railway.json](/Users/starlord/giveaway_app/railway.json)
+- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile)
+- [api/Procfile](/Users/starlord/giveaway_app/api/Procfile)
+
+Current deploy path:
+
+- Railway should build using `api/Dockerfile`
+- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) is written for repository-root build context
+- active backend entrypoint remains [api/main.py](/Users/starlord/giveaway_app/api/main.py)
+- [api/Procfile](/Users/starlord/giveaway_app/api/Procfile) uses `api.main:app` from the repository root
+- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) runs `main:app` inside the container because `api/` contents are copied into `/app`
+
 ## Required Environment Variables
 
 ### Flutter `.env`

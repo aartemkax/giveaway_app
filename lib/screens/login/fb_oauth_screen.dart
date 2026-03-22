@@ -1,3 +1,4 @@
+// Active screen: Facebook OAuth webview route used by the current FB flow.
 // lib/screens/login/fb_oauth_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';

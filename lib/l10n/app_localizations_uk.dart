@@ -58,8 +58,7 @@ class AppLocalizationsUk extends AppLocalizations {
   }
 
   @override
-  String get error_internal_error =>
-      'Помилка сервера. Спробуйте ще раз пізніше.';
+  String get error_internal_error => 'Помилка сервера. Спробуйте пізніше.';
 
   @override
   String get error_instagram_challenge =>

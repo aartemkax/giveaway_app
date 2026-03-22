@@ -322,12 +322,13 @@ Signals currently present in repo:
 
 - [api/Procfile](/Users/starlord/giveaway_app/api/Procfile) defines separate `web` and `worker` processes
 - [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) defines a web image using Gunicorn
-- [railway.json](/Users/starlord/giveaway_app/railway.json) points to a root-level `Dockerfile`, which does not currently exist
+- [railway.json](/Users/starlord/giveaway_app/railway.json) points Railway to `api/Dockerfile`
 
 Current conclusion:
 
 - deployment intent is clear;
-- deployment configuration is not fully aligned in the repository yet.
+- deploy path is aligned around `railway.json -> api/Dockerfile -> main:app`.
+- `api.main:app` in [api/Procfile](/Users/starlord/giveaway_app/api/Procfile) and `main:app` in [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) are consistent because the container copies `api/` contents into `/app`.
 
 ## Data And Control Flow Notes
 

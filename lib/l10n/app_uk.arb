@@ -139,36 +139,13 @@
     "description": "Універсальний випадок для невідомих помилок з бекенду"
   },
 
-  "error_instagram_challenge": "Потрібна додаткова верифікація в Instagram.",
-  "@error_instagram_challenge": {
-    "description": "Показати, коли бекенд повернув instagram_challenge без detail"
-  },
-
   "error_instagram_submit_phone": "Instagram вимагає додати номер телефону. Відкрийте Instagram, щоб продовжити.",
   "@error_instagram_submit_phone": {
     "description": "Показати при detail == \"submit_phone\""
   },
 
-  "error_generic": "Помилка: {error}",
-  "@error_generic": {
-    "description": "Універсальне повідомлення про помилку",
-    "placeholders": {
-      "error": {}
-    }
-  },
-
-  "error_internal_error": "Помилка сервера. Спробуйте ще раз пізніше.",
-  "@error_internal_error": {
-    "description": "Універсальне повідомлення при помилці сервера (HTTP 500)"
-  },
-
   "open_instagram_button": "Відкрити Instagram",
   "@open_instagram_button": {
     "description": "Text on the button that launches Instagram or fallback URL"
-  },
-
-  "open_instagram_button": "Відкрити Instagram",
-  "@open_instagram_button": {
-    "description": "Текст на кнопці, щоб відкрити Instagram"
   }
 }

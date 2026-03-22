@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+﻿// Active screen: environment/debug utility wired from main.dart via /debug_env.
+
+import 'package:flutter/material.dart';
 
 import 'package:giveaway_app/utils/constants.dart';
 

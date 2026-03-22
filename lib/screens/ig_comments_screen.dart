@@ -1,4 +1,5 @@
-//lib/screens/ig_comments_screen.dart
+// Active screen: Graph API comments browser and draw workflow.
+// lib/screens/ig_comments_screen.dart
 import 'dart:convert';
 
 import 'package:flutter/material.dart';

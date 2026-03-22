@@ -1,3 +1,4 @@
+// Active screen: current session-based participants and draw screen.
 // lib/screens/login/participants_screen.dart
 //
 // ──────────────────────────────────────────────────────────────────────────────

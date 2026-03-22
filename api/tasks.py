@@ -6,19 +6,12 @@ import random
 import re
 import time
 import base64
-from datetime import datetime
 
 from instagrapi import Client
-from instagrapi.exceptions import (
-    LoginRequired,
-    ChallengeRequired,
-    MediaNotFound,
-    PleaseWaitFewMinutes
-)
+from instagrapi.exceptions import PleaseWaitFewMinutes
 from redis import Redis
 import prometheus_client
 from account_affinity import AccountAffinityStore
-from device_emulator import emulate_device  # додано емулювання пристрою
 
 # регулярка для перевірки Instagram-лінку
 URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|reels|tv)/[^/]+/?$")
@@ -27,15 +20,6 @@ URL_PATTERN = re.compile(r"^https?://(www\.)?instagram\.com/(p|reel|reels|tv)/[^
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_conn = Redis.from_url(redis_url)
 affinity_store = AccountAffinityStore(redis_conn)
-
-# Директорія з JSON-сесіями ботів
-BOT_SESSIONS_DIR = os.path.join(os.path.dirname(__file__), "bot_sessions")
-os.makedirs(BOT_SESSIONS_DIR, exist_ok=True)
-bot_files = [f for f in os.listdir(BOT_SESSIONS_DIR) if f.endswith('.json')]
-
-# Інші конфіги
-PAGE_SIZE = int(os.getenv("PAGE_SIZE", "20"))
-CACHE_TTL = int(os.getenv("CACHE_TTL", "3600"))  # секунди
 
 # Проксі (опційно)
 try:
@@ -107,6 +91,7 @@ def fetch_participants_task(
     device_info=None,
     region=None
 ):
+    # Kept for compatibility with existing queue.enqueue callers in api/main.py.
     # Відновлюємо лише сесію без повторної емуляції чи логіну
     try:
         decoded = base64.b64decode(settings_b64)
@@ -117,47 +102,8 @@ def fetch_participants_task(
 
     proxy = random.choice(PROXIES) if use_proxy and PROXIES else None
     cl = _restore_client_from_settings(user_settings, proxy=proxy)
-
-    # Встановлюємо налаштування сесії
-    ua = user_settings.get("user_agent")
     logging.info(">>> fetch task using restored session")
     return _fetch_participants_with_client(cl, post_url)
-    logging.info(">>> fetch таск використовує UA=%s", cl.user_agent)
-
-    # Валідація URL
-    if not URL_PATTERN.match(post_url):
-        return {"error": "invalid_post_url"}
-
-    # Отримуємо media_id
-    try:
-        media_id = cl.media_pk_from_url(post_url)
-    except Exception:
-        return {"error": "invalid_post_url"}
-
-    # Завантажуємо всі коментарі одним запитом
-    try:
-        comments = cl.media_comments(media_id, amount=0)
-    except PleaseWaitFewMinutes:
-        RATE_LIMIT_EXCEPTIONS.inc()
-        return {"error": "rate_limited"}
-    except Exception as e:
-        logging.exception("Error fetching comments")
-        return {"error": "internal_error", "detail": str(e)}
-
-    # Формуємо унікальний список учасників
-    participants = []
-    seen = set()
-    for c in comments:
-        uname = c.user.username
-        if uname not in seen:
-            seen.add(uname)
-            participants.append({
-                "username": uname,
-                "profile_pic_url": str(c.user.profile_pic_url)
-            })
-
-
-    return participants
 
 
 def fetch_account_participants_task(account_id: str, post_url: str):

@@ -212,26 +212,17 @@ Current practical interpretation:
 
 This is a high-confusion pair and should be handled carefully in future cleanup.
 
-## 5. Localization Duplicates In `app_uk.arb`
+## 5. Localization Cleanup Note
 
-File:
+Files:
 
 - [lib/l10n/app_uk.arb](/Users/starlord/giveaway_app/lib/l10n/app_uk.arb)
+- [lib/l10n/app_fr.arb](/Users/starlord/giveaway_app/lib/l10n/app_fr.arb)
 
-Confirmed duplicate keys:
+Status:
 
-- `error_generic`
-- `error_internal_error`
-- `error_instagram_challenge`
-- `open_instagram_button`
-
-Why this matters:
-
-- duplicate ARB keys make localization ownership unclear;
-- later values may silently override earlier intent;
-- translators and future edits can become inconsistent.
-
-This file should be treated as active but internally inconsistent.
+- duplicate keys that previously existed in these files were cleaned up;
+- they should now be treated as active and normalized, not as current cleanup targets.
 
 ## Active vs Legacy Summary
 
@@ -265,7 +256,6 @@ This file should be treated as active but internally inconsistent.
 - [lib/services/appapi/app_auth_service.dart](/Users/starlord/giveaway_app/lib/services/appapi/app_auth_service.dart)
 - [lib/services/participants_service.dart](/Users/starlord/giveaway_app/lib/services/participants_service.dart)
 - [lib/services/appapi/app_participants_service.dart](/Users/starlord/giveaway_app/lib/services/appapi/app_participants_service.dart)
-- [lib/l10n/app_uk.arb](/Users/starlord/giveaway_app/lib/l10n/app_uk.arb)
 
 ## Do-Not-Touch-Casually List
 
@@ -275,7 +265,6 @@ These areas should not be “cleaned up quickly” without deciding the target a
 - participants service duplication
 - old vs new login/participants screens
 - `api/app.py` removal
-- `app_uk.arb` duplicate cleanup if localization generation is currently fragile
 
 ## Practical Next Cleanup Steps
 
@@ -285,8 +274,7 @@ This is the smallest sensible order for future cleanup.
 2. Decide which participants service is canonical.
 3. Mark legacy screens clearly or remove them in a dedicated cleanup task.
 4. Remove or archive `api/app.py` once confirmed unused.
-5. Clean duplicate keys in `app_uk.arb`.
-6. Rename or regroup screens so directory structure matches actual ownership.
+5. Rename or regroup screens so directory structure matches actual ownership.
 
 ## Update Rule
 

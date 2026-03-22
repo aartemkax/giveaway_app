@@ -1,3 +1,5 @@
+// Legacy screen: older standalone draw flow, not wired from main.dart.
+// Keep only until dedicated screen cleanup.
 // lib/screens/home_screen.dart
 import 'dart:math';
 import 'package:flutter/material.dart';

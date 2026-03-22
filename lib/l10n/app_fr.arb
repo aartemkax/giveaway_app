@@ -139,36 +139,13 @@
     "description": "Générique pour les erreurs inconnues"
   },
 
-  "error_instagram_challenge": "Une vérification supplémentaire Instagram est requise.",
-  "@error_instagram_challenge": {
-    "description": "Affiché quand le backend renvoie instagram_challenge sans détail"
-  },
-
   "error_instagram_submit_phone": "Instagram vous demande d’ajouter un numéro de téléphone. Ouvrez Instagram pour continuer.",
   "@error_instagram_submit_phone": {
     "description": "Affiché quand detail == \"submit_phone\""
   },
 
-  "error_generic": "Erreur : {error}",
-  "@error_generic": {
-    "description": "Message générique pour les erreurs non reconnues",
-    "placeholders": {
-      "error": {}
-    }
-  },
-
-  "error_internal_error": "Erreur du serveur. Veuillez réessayer plus tard.",
-  "@error_internal_error": {
-    "description": "Message générique pour les erreurs inattendues du serveur (HTTP 500)"
-  },
-
   "open_instagram_button": "Ouvrir Instagram",
   "@open_instagram_button": {
     "description": "Text on the button that launches Instagram or fallback URL"
-  },
-
-  "open_instagram_button": "Ouvrir Instagram",
-  "@open_instagram_button": {
-    "description": "Texte du bouton pour ouvrir Instagram"
   }
 }

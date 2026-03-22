@@ -1,4 +1,5 @@
-//lib/screens/ig_comments_screen.dart
+// Active screen: Graph API media browser for the selected IG account.
+// lib/screens/ig_media_screen.dart
 import 'package:flutter/material.dart';
 import 'package:giveaway_app/services/graph_service.dart';
 import 'package:dio/dio.dart';

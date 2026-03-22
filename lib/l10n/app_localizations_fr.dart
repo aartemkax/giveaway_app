@@ -60,11 +60,11 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get error_internal_error =>
-      'Erreur du serveur. Veuillez réessayer plus tard.';
+      'Erreur serveur. Veuillez réessayer plus tard.';
 
   @override
   String get error_instagram_challenge =>
-      'Une vérification supplémentaire Instagram est requise.';
+      'Vérification Instagram supplémentaire requise.';
 
   @override
   String get error_invalid_credentials =>

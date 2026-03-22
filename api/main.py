@@ -1,4 +1,11 @@
-# api/main.py
+"""Canonical Flask backend entrypoint.
+
+Use this file for active backend development and runtime startup.
+
+Related note:
+- api/app.py is a legacy stub and should not be used for new backend work
+"""
+
 from datetime import timedelta
 import copy
 import os
@@ -1951,4 +1958,3 @@ def logout():
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)), debug=True)
-

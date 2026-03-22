@@ -1,3 +1,6 @@
+// Legacy stub screen: disabled Instagram web login placeholder.
+// Not wired into the active route flow and not for new work.
+
 import 'package:flutter/material.dart';
 
 class InstagramLoginWebView extends StatelessWidget {

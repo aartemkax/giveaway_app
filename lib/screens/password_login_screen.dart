@@ -1,3 +1,4 @@
+// Active screen: current Instagram username/password login flow.
 // lib/screens/password_login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';

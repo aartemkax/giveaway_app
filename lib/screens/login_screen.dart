@@ -1,3 +1,5 @@
+// Legacy screen: older Instagram webview login flow, not wired from main.dart.
+// Keep only until dedicated screen cleanup.
 // lib/screens/login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';

@@ -300,7 +300,7 @@ Each cleanup item below describes:
 
 ### What To Clean
 
-- duplicate keys in [lib/l10n/app_uk.arb](/Users/starlord/giveaway_app/lib/l10n/app_uk.arb)
+- duplicate keys in localization ARB files when they appear again
 
 ### Why It Matters
 
@@ -316,15 +316,10 @@ Each cleanup item below describes:
 - keeping the wrong final text
 - breaking localization generation if formatting is changed carelessly
 
-### Checks Required Before Changes
+### Status
 
-- identify the intended final text for each duplicate key
-- confirm there are no duplicate-key equivalents in other locale files
-
-### Verification Required After Changes
-
-- localization generation still works
-- affected screens still render correct text
+- the currently known duplicate-key issue in `app_uk.arb` and `app_fr.arb` has already been cleaned up
+- keep this item only as a maintenance rule for future localization edits
 
 ## Decision Table
 
@@ -336,7 +331,7 @@ This is the current recommended decision state before code cleanup.
 | Participants service | Treat `appapi` version as likely canonical | Medium |
 | Legacy screens | Keep, but mark as legacy in docs until dedicated cleanup | High |
 | `api/app.py` | Treat as legacy candidate, do not use for new work | High |
-| `app_uk.arb` duplicates | Clean in dedicated low-risk task | High |
+| `app_uk.arb` duplicates | Already cleaned; keep out of current cleanup scope | High |
 
 ## Current Cleanup Decisions
 
@@ -607,7 +602,7 @@ These are the next sensible cleanup tasks, one per PR or one per focused session
 
 ### Task E
 
-- remove duplicate keys from `app_uk.arb`
+- keep localization ARB files and generated outputs in sync after future string changes
 - regenerate localization outputs if required
 
 ## Update Rule
