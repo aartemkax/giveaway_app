@@ -18,13 +18,14 @@ The goals are:
 
 The project currently has:
 
-- one default Flutter widget test scaffold;
+- one real Flutter widget smoke test for startup/loading state;
 - one Playwright API smoke suite focused on staging admin/account-affinity endpoints.
 
 In practice this means:
 
 - backend admin API has some smoke coverage;
-- the main Flutter user flows are largely not protected by tests yet;
+- app startup has minimal automated sanity coverage;
+- the main Flutter user flows are still largely not protected by tests yet;
 - the main login and draw product flows still rely heavily on manual verification.
 
 ## Testing Priorities
@@ -82,12 +83,14 @@ Purpose:
 Best current fit:
 
 - Playwright API smoke tests
-- basic manual app boot check
+- basic Flutter app-boot smoke test
+- manual app boot check
 
 Current repo status:
 
 - [tests/playwright/admin-api.spec.ts](/Users/starlord/giveaway_app/tests/playwright/admin-api.spec.ts) exists and is useful
 - it currently focuses mostly on admin/account-affinity endpoints
+- [test/widget_test.dart](/Users/starlord/giveaway_app/test/widget_test.dart) provides a minimal app-startup smoke check
 
 Current recommended smoke coverage:
 
@@ -154,7 +157,7 @@ Priority UI sanity targets:
 
 Current repo status:
 
-- current Flutter widget test does not protect real app behavior
+- current Flutter widget test protects startup/loading-shell behavior only
 
 File:
 
@@ -162,7 +165,8 @@ File:
 
 Important note:
 
-- this is still the default counter test scaffold and should not be treated as meaningful coverage.
+- this is no longer the default counter scaffold;
+- it should be treated as minimal startup sanity coverage, not as broad UI protection.
 
 ## What Counts As “Good Enough” Right Now
 
@@ -194,14 +198,14 @@ Use this as the project-level checklist.
 
 | Area | Minimum Test Type | Current State |
 | --- | --- | --- |
-| App boot | Manual sanity | Needed |
+| App boot | Flutter widget smoke + manual sanity | Partial |
 | Facebook login start | Manual sanity | Needed |
 | Instagram login/password | Manual sanity | Needed |
 | Session-based async fetch | API smoke + manual | Partial |
 | Account-affinity backend | Playwright smoke | Present |
 | Draw via Graph API | Manual sanity | Needed |
 | Localization rendering | Manual sanity | Needed |
-| Widget-level UI behavior | Flutter widget tests | Weak |
+| Widget-level UI behavior | Flutter widget tests | Minimal |
 
 ## Existing Test Assets
 
@@ -211,8 +215,9 @@ Use this as the project-level checklist.
 
 Current assessment:
 
-- not useful in its current form;
-- should eventually be replaced with real app-focused widget tests.
+- useful as a startup smoke test;
+- currently verifies app boot, loading shell, and env badge rendering;
+- still too narrow to count as full UI coverage.
 
 ### Playwright
 
@@ -292,15 +297,15 @@ Minimum rule:
 
 These are ordered by value, not by difficulty.
 
-### 1. Replace the default Flutter widget test
+### 1. Expand the current Flutter startup smoke test
 
 Target:
 
-- app boot or login screen sanity
+- app boot plus login entry sanity
 
 Why:
 
-- current widget test is unrelated to the real app
+- startup coverage exists now, but it is still too narrow for the main auth flow
 
 ### 2. Add one real auth sanity test path
 
