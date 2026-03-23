@@ -181,7 +181,8 @@ Reference file:
 
 ### Flutter
 
-There is currently only the default Flutter test scaffold:
+The repo currently includes a minimal Flutter startup smoke test.
+It is useful, but still narrower than real screen-level UI coverage:
 
 ```bash
 flutter test
@@ -219,6 +220,7 @@ Related files:
 - [docs/DEFINITION_OF_DONE.md](/Users/starlord/giveaway_app/docs/DEFINITION_OF_DONE.md)
 - [docs/TESTING.md](/Users/starlord/giveaway_app/docs/TESTING.md)
 - [docs/RELEASE_CHECKLIST.md](/Users/starlord/giveaway_app/docs/RELEASE_CHECKLIST.md)
+- [docs/PROCESS_RETRO.md](/Users/starlord/giveaway_app/docs/PROCESS_RETRO.md)
 
 ## Current State
 
