@@ -331,6 +331,6 @@ npm run test:api
 Окремо вже зроблено кілька безпечних cleanup-кроків:
 - прибрано дублікати ключів у локалізаціях `app_uk.arb` та `app_fr.arb`;
 - прибрано явний мертвий код у `api/tasks.py`;
-- узгоджено Railway/Docker path через `railway.json -> api/Dockerfile -> main:app`.
+- узгоджено Railway/Docker path через `railway.json -> api/Dockerfile`, з Railway `Root Directory = /api`.
 
 Тобто це `працюючий прикладний інструмент з реальним функціоналом`, але не до кінця приведений до чистого продуктового стану.

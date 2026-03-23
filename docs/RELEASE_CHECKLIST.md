@@ -80,6 +80,7 @@ Also verify:
 
 - [api/Procfile](/Users/starlord/giveaway_app/api/Procfile) still matches runtime expectations
 - [railway.json](/Users/starlord/giveaway_app/railway.json) still points to the correct Docker path
+- Railway service Root Directory is still `/api`
 - [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) still matches the intended deploy entrypoint
 
 ## 3. Login Flow Check

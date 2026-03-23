@@ -328,7 +328,8 @@ Current conclusion:
 
 - deployment intent is clear;
 - deploy path is aligned around `railway.json -> api/Dockerfile -> main:app`.
-- `api.main:app` in [api/Procfile](/Users/starlord/giveaway_app/api/Procfile) and `main:app` in [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) are consistent because the container copies `api/` contents into `/app`.
+- Railway build context must stay rooted at `/api` for [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) to work as written.
+- `api.main:app` in [api/Procfile](/Users/starlord/giveaway_app/api/Procfile) and `main:app` in [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) are consistent because they run from different working contexts: repository root vs container `/app`.
 
 ## Data And Control Flow Notes
 

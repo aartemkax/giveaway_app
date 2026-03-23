@@ -126,10 +126,11 @@ Current canonical deploy files:
 Current deploy path:
 
 - Railway should build using `api/Dockerfile`
-- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) is written for repository-root build context
+- Railway service Root Directory should remain `/api`
 - active backend entrypoint remains [api/main.py](/Users/starlord/giveaway_app/api/main.py)
 - [api/Procfile](/Users/starlord/giveaway_app/api/Procfile) uses `api.main:app` from the repository root
-- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) runs `main:app` inside the container because `api/` contents are copied into `/app`
+- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) is written for Railway build context rooted at `/api`
+- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) runs `main:app` inside the container because `/api` contents are copied into `/app`
 
 ## Required Environment Variables
 
