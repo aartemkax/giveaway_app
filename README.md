@@ -218,6 +218,7 @@ Related files:
 - [docs/DEV_SETUP.md](/Users/starlord/giveaway_app/docs/DEV_SETUP.md)
 - [docs/DEFINITION_OF_DONE.md](/Users/starlord/giveaway_app/docs/DEFINITION_OF_DONE.md)
 - [docs/TESTING.md](/Users/starlord/giveaway_app/docs/TESTING.md)
+- [docs/RELEASE_CHECKLIST.md](/Users/starlord/giveaway_app/docs/RELEASE_CHECKLIST.md)
 
 ## Current State
 
