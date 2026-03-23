@@ -14,6 +14,30 @@ function makeAccountId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
+async function createAdminAccount(request: any, accountId: string) {
+  const response = await request.post("/api/admin/accounts", {
+    data: {
+      account_id: accountId,
+      instagram_username: "smoke_account",
+      session_settings: {
+        user_agent: "Instagram 269.0.0.18.75 Android",
+        device_settings: {
+          model: "Pixel 7",
+          manufacturer: "Google",
+        },
+        cookies: {},
+      },
+      device_profile: {
+        device_agent: "Instagram 269.0.0.18.75 Android",
+        region: "UA",
+      },
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  return response;
+}
+
 async function waitForJobToFinish(request: any, jobId: string) {
   const deadline = Date.now() + 45_000;
 
@@ -107,6 +131,46 @@ test.describe("staging admin api smoke", () => {
     });
   });
 
+  test("account-scoped fetch returns not_found for unknown account", async ({
+    request,
+  }) => {
+    const response = await request.post(
+      `/api/admin/accounts/${makeAccountId("missing")}/fetch_participants_async`,
+      {
+        data: {
+          post_url: testPostUrl,
+        },
+      },
+    );
+
+    expect(response.status()).toBe(404);
+    expect(await response.json()).toMatchObject({
+      error: "not_found",
+      detail: "account not found",
+    });
+  });
+
+  test("account-scoped fetch validates invalid post_url before enqueue", async ({
+    request,
+  }) => {
+    const accountId = makeAccountId("acc-invalid-url");
+    await createAdminAccount(request, accountId);
+
+    const response = await request.post(
+      `/api/admin/accounts/${accountId}/fetch_participants_async`,
+      {
+        data: {
+          post_url: "https://example.com/not-instagram",
+        },
+      },
+    );
+
+    expect(response.status()).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "invalid_post_url",
+    });
+  });
+
   test("can create proxy, account, bind them, and enqueue account-scoped job", async ({
     request,
   }) => {
@@ -133,25 +197,7 @@ test.describe("staging admin api smoke", () => {
       },
     });
 
-    const accountCreate = await request.post("/api/admin/accounts", {
-      data: {
-        account_id: accountId,
-        instagram_username: "smoke_account",
-        session_settings: {
-          user_agent: "Instagram 269.0.0.18.75 Android",
-          device_settings: {
-            model: "Pixel 7",
-            manufacturer: "Google",
-          },
-          cookies: {},
-        },
-        device_profile: {
-          device_agent: "Instagram 269.0.0.18.75 Android",
-          region: "UA",
-        },
-      },
-    });
-    expect(accountCreate.ok()).toBeTruthy();
+    const accountCreate = await createAdminAccount(request, accountId);
     expect(await accountCreate.json()).toMatchObject({
       account: {
         account_id: accountId,
@@ -208,24 +254,7 @@ test.describe("staging admin api smoke", () => {
   test("account-scoped async job reaches a terminal result endpoint", async ({ request }) => {
     const accountId = makeAccountId("acc-job");
 
-    const accountCreate = await request.post("/api/admin/accounts", {
-      data: {
-        account_id: accountId,
-        instagram_username: "smoke_async_account",
-        session_settings: {
-          user_agent: "Instagram 269.0.0.18.75 Android",
-          device_settings: {
-            model: "Pixel 7",
-            manufacturer: "Google",
-          },
-          cookies: {},
-        },
-        device_profile: {
-          device_agent: "Instagram 269.0.0.18.75 Android",
-          region: "UA",
-        },
-      },
-    });
+    const accountCreate = await createAdminAccount(request, accountId);
     expect(accountCreate.ok()).toBeTruthy();
 
     const enqueue = await request.post(
