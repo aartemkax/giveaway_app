@@ -1,336 +1,235 @@
-# giveaway_app — вижимка проєкту
+﻿# PROJECT_SUMMARY_FOR_CHAT
 
-Цей файл призначений для швидкого handoff в інший чат або іншому розробнику.
-Більш практичний onboarding і команди запуску винесені в [README.md](/Users/starlord/giveaway_app/README.md).
+## Overview
 
-## 1. Що це за проєкт
+`giveaway_app` is a Flutter client plus Flask backend for Instagram/Facebook giveaway workflows.
 
-`giveaway_app` — це Flutter-застосунок для проведення Instagram giveaway / розіграшів з Python-бекендом на Flask.
+The repository currently contains:
 
-У проєкті є 2 основні сценарії роботи:
+- a Flutter mobile app in [`lib/`](C:/dev/giveaway_app/lib)
+- a Flask API in [`api/main.py`](C:/dev/giveaway_app/api/main.py)
+- Redis-backed background jobs in [`api/tasks.py`](C:/dev/giveaway_app/api/tasks.py)
+- an account-affinity store in [`api/account_affinity.py`](C:/dev/giveaway_app/api/account_affinity.py)
+- Railway deploy configuration in [`railway.json`](C:/dev/giveaway_app/railway.json) and [`api/Dockerfile`](C:/dev/giveaway_app/api/Dockerfile)
+- Playwright API smoke tests in [`tests/playwright/admin-api.spec.ts`](C:/dev/giveaway_app/tests/playwright/admin-api.spec.ts)
 
-1. `Facebook/Instagram Graph API flow`
-   Користувач логіниться через Facebook OAuth, бекенд отримує доступ до сторінок і підключених Instagram business/creator акаунтів, після чого можна:
-   - отримати список IG-акаунтів;
-   - завантажити медіа;
-   - завантажити коментарі;
-   - відфільтрувати учасників;
-   - провести жеребкування з audit-даними.
+The long-term direction is moving from direct session-based Instagram server login toward account-scoped async jobs backed by persisted session/device context.
 
-2. `Instagram session / instagrapi flow`
-   Користувач логіниться в Instagram через логін/пароль або через `sessionid`.
-   Бекенд зберігає серверну IG-сесію і через `instagrapi` асинхронно витягує коментарі з поста, формуючи пул учасників.
+## Repository State
 
-Додатково є `admin/account-affinity` шар:
-- можна зберігати окремі Instagram-акаунти;
-- прив’язувати до них проксі;
-- запускати account-scoped async jobs;
-- зберігати цей стан у Redis.
+Verified from repository state:
 
-## 2. Основний стек
+- `README.md` is still the default Flutter template and is not an authoritative project description.
+- There is no separate `handbook/` directory in this repo.
+- `docs/` currently contains built Flutter web artifacts and is not only handwritten engineering documentation.
+- `project_init/` is now a lightweight entrypoint and should not duplicate the canonical summary.
+- `PROJECT_SUMMARY_FOR_CHAT.md` is intended to be the single compact handoff document.
 
-- Frontend: Flutter 3 / Dart 3
-- State management: Riverpod
-- HTTP client: Dio + cookie jar
-- Локальне збереження: SharedPreferences
-- Локалізація: `uk`, `en`, `fr`
-- Backend API: Flask
-- Черги: Redis + RQ
-- Instagram неофіційний доступ: `instagrapi`
-- Facebook/Instagram офіційний доступ: Graph API v21
-- Smoke tests: Playwright
-- Деплой бекенду схожий на Railway
+## Frontend
 
-## 3. Архітектура
+The Flutter app boots from [`lib/main.dart`](C:/dev/giveaway_app/lib/main.dart).
 
-### Flutter-клієнт
+Current frontend behavior:
 
-Головна точка входу: `lib/main.dart`
+- startup auth state is routed through `auth_method`
+- supported auth modes are:
+  - `fb`
+  - `ig`
+  - `ig_account`
+- environment visibility is built into the UI through an environment badge and debug screen
+- the debug screen route is `/debug_env`
 
-Клієнт:
-- читає `API_BASE_URL` з `.env`;
-- ініціалізує `ApiClient`;
-- визначає тип авторизації через `SharedPreferences`;
-- направляє користувача або у Facebook flow, або у IG participants flow.
+Important frontend service flows:
 
-Ключові екрани:
-- `lib/screens/login/app_login_screen.dart`
-  стартовий екран, дає вибір між Facebook OAuth і Instagram/private flow.
-- `lib/screens/password_login_screen.dart`
-  логін в Instagram через логін/пароль, з fallback на `sessionid`.
-- `lib/screens/fb_home_screen.dart`
-  перевіряє FB-сесію і показує доступні IG-акаунти з Graph API.
-- `lib/screens/ig_media_screen.dart`
-  список медіа IG-акаунта, плюс пошук media по permalink.
-- `lib/screens/ig_comments_screen.dart`
-  завантаження коментарів, фільтрація, draw, копіювання winners/CSV.
-- `lib/screens/login/participants_screen.dart`
-  “простий” сценарій для session-based IG login: вводиш URL поста, отримуєш учасників, локально обираєш переможців.
+- [`lib/services/auth_service.dart`](C:/dev/giveaway_app/lib/services/auth_service.dart)
+  - legacy auth/session checks
+  - `hasActiveAccount()` for account-affinity mode
+- [`lib/services/appapi/app_auth_service.dart`](C:/dev/giveaway_app/lib/services/appapi/app_auth_service.dart)
+  - new API-facing auth helper
+  - `createAccountFromSessionId()` stores:
+    - `auth_method = ig_account`
+    - `active_account_id`
+- [`lib/services/appapi/app_participants_service.dart`](C:/dev/giveaway_app/lib/services/appapi/app_participants_service.dart)
+  - starts async participant fetch
+  - prefers `/api/admin/accounts/<account_id>/fetch_participants_async` when `active_account_id` exists
+  - otherwise falls back to the legacy `/api/fetch_participants_async`
+- [`lib/screens/instagram_login_webview.dart`](C:/dev/giveaway_app/lib/screens/instagram_login_webview.dart)
+  - extracts `sessionid` from Instagram WebView cookies
+  - sends it to `/api/admin/accounts/from_sessionid`
+  - does not treat `sessionid` onboarding as a server-side Instagram login anymore
 
-### Python API
+## Backend
 
-Головна точка входу: `api/main.py`
+The backend entrypoint is [`api/main.py`](C:/dev/giveaway_app/api/main.py).
 
-Що робить бекенд:
-- тримає Flask session у Redis;
-- приймає логін в Instagram;
-- збирає/емуляє device payload;
-- працює з `instagrapi`;
-- запускає async jobs через RQ;
-- інтегрується з Facebook OAuth і Graph API;
-- віддає admin endpoints для акаунтів і проксі.
+Core backend pieces:
 
-Додаткові модулі:
-- `api/tasks.py` — worker-задачі для асинхронного збору учасників;
-- `api/fb_graph.py` — обгортка над Facebook Graph API;
-- `api/account_affinity.py` — модель акаунтів/проксі та їх зберігання в Redis;
-- `api/device_emulator.py` — серверна емуляція device profile;
-- `api/app.py` — схоже на застарілий/дублюючий файл з частиною маршрутів.
+- Flask app with `Flask-Session`
+- Redis for both session storage and job queue backing
+- RQ queue via `Queue(connection=redis_conn)`
+- CORS configured for local dev and optional Railway origin
+- `ProxyFix` enabled for forwarded host/ip handling
 
-## 4. Ключові флоу
+Backend still contains both old and new Instagram paths:
 
-### A. Facebook / Graph API flow
+- legacy login/session validation endpoints remain in place
+- new account-affinity endpoints exist for account registration and account-scoped work
 
-1. Flutter відкриває `/api/fb/login_url`
-2. Користувач проходить Facebook OAuth
-3. Бекенд зберігає `fb_user_token` у server session
-4. Flutter викликає `/api/ig/accounts`
-5. Далі доступні:
-   - `/api/ig/media`
-   - `/api/ig/resolve_media`
-   - `/api/ig/comments`
-   - `/api/ig/comments_all`
-   - `/api/ig/comments_filter`
-   - `/api/ig/run_draw`
-   - `/api/ig/export_csv`
+Important new endpoints:
 
-Сильна сторона цього flow:
-- є більш “офіційний” сценарій для бізнес/creator акаунтів;
-- є audit-пакет у `/api/ig/run_draw` (`seed`, `pool_hash`, counts, filters).
+- `POST /api/admin/accounts`
+- `GET /api/admin/accounts`
+- `GET /api/admin/accounts/<account_id>`
+- `POST /api/admin/accounts/from_current_session`
+- `POST /api/admin/accounts/from_sessionid`
+- `POST /api/admin/accounts/<account_id>/bind_proxy`
+- `POST /api/admin/accounts/<account_id>/sync_session`
+- `POST /api/admin/accounts/<account_id>/fetch_participants_async`
+- `GET /api/job_status/<job_id>`
+- `GET /api/job_result/<job_id>`
 
-### B. Instagram login / instagrapi flow
+## Account-Affinity Model
 
-1. Flutter збирає fingerprint пристрою
-2. Відправляє його на:
-   - `/api/collect_device_geo`
-   - `/api/device_report`
-3. Потім викликає `/api/login`
-4. Бекенд логіниться в Instagram через `instagrapi`
-5. Сесія зберігається в Flask session (`ig_settings`)
-6. Flutter запускає `/api/fetch_participants_async`
-7. Бекенд ставить задачу в RQ
-8. Flutter полить:
-   - `/api/job_status/<job_id>`
-   - `/api/job_result/<job_id>`
+The account-affinity layer is implemented in [`api/account_affinity.py`](C:/dev/giveaway_app/api/account_affinity.py).
 
-Особливість:
-- у простому session-flow переможці фактично обираються на фронтенді після отримання списку учасників.
+Current persisted entities:
 
-### C. Account affinity / admin flow
+- `AccountRecord`
+  - `account_id`
+  - `instagram_username`
+  - `status`
+  - `proxy_id`
+  - `session_settings`
+  - `device_profile`
+  - `last_login_at`
+  - `last_success_at`
+  - `cooldown_until`
+  - `challenge_reason`
+  - `notes`
+- `ProxyRecord`
+  - `proxy_id`
+  - `proxy_url`
+  - `region`
+  - `proxy_type`
+  - `status`
+  - `assigned_account_id`
 
-Є окремий бекенд-шар для збереження IG-акаунтів і проксі:
-- `/api/admin/accounts`
-- `/api/admin/proxies`
-- `/api/admin/accounts/from_current_session`
-- `/api/admin/accounts/from_sessionid`
-- `/api/admin/accounts/<account_id>`
-- `/api/admin/accounts/<account_id>/bind_proxy`
-- `/api/admin/accounts/<account_id>/sync_session`
-- `/api/admin/accounts/<account_id>/fetch_participants_async`
+Current guarantees from this layer:
 
-Це виглядає як підготовка до multi-account режиму, де один акаунт закріплений за одним проксі і виконує jobs із власною session settings.
+- account-scoped Redis records
+- proxy binding support
+- account lock support to prevent concurrent worker execution
+- account context restoration for background jobs
 
-## 5. Де зберігається стан
+What `from_sessionid` actually does:
 
-### На клієнті
+- accepts raw `sessionid` plus `deviceInfo.settings`
+- stores those cookies/settings as account session state
+- marks the record as coming from `sessionid` source
+- does **not** validate the session with Instagram at onboarding time
 
-- `SharedPreferences`
-  - `auth_method`
-  - `active_account_id`
-  - `isLoggedIn` (частково)
-- cookie jar для HTTP cookie
+## Background Jobs
 
-### На бекенді
+Background job logic lives in [`api/tasks.py`](C:/dev/giveaway_app/api/tasks.py).
 
-- Flask Session у Redis:
-  - `ig_settings`
-  - `emu_cache`
-  - `fb_user_token`
-  - `ig_graph_settings`
-- Redis для:
-  - RQ jobs
-  - account/proxy affinity store
-  - optional caches
+Two main job paths exist:
 
-## 6. Що потрібно для запуску
+- `fetch_participants_task(...)`
+  - legacy path using encoded settings payload
+- `fetch_account_participants_task(account_id, post_url)`
+  - new account-affinity path
 
-### Flutter
+`fetch_account_participants_task(...)`:
 
-Мінімум:
-- Flutter SDK
-- файл `.env` з `API_BASE_URL`
+- acquires an account lock
+- loads persisted `session_settings` and optional proxy from `AccountAffinityStore`
+- restores an `instagrapi.Client`
+- attempts to fetch media comments from Instagram
+- marks account state based on result
 
-У `lib/utils/constants.dart` base URL береться з `.env`, fallback:
-- `http://10.0.2.2:8080`
+Important current implementation detail:
 
-Базовий запуск:
+- jobs are considered technically successful by RQ even when they return an error dict like `{"error": "internal_error"}`; API then converts that to an HTTP error in `/api/job_result/<job_id>`
 
-```bash
-flutter pub get
-flutter run
-```
+## Deploy / Runtime
 
-### Backend
+Railway deploy is configured in [`railway.json`](C:/dev/giveaway_app/railway.json) and [`api/Dockerfile`](C:/dev/giveaway_app/api/Dockerfile).
 
-Мінімум:
-- Python 3.11
-- Redis
-- залежності з `api/requirements.txt`
+Runtime facts from repository config:
 
-Базовий локальний запуск:
+- build uses Dockerfile
+- deploy runtime is Railway V2
+- web container default command is Gunicorn from `api/Dockerfile`
+- worker process convention is defined in [`api/Procfile`](C:/dev/giveaway_app/api/Procfile):
+  - `web: gunicorn ...`
+  - `worker: python -m rq worker --with-scheduler -u $REDIS_URL -P .`
 
-```bash
-cd api
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python main.py
-```
+Operational caveat:
 
-Для async jobs окремо потрібен worker:
+- API and worker must be redeployed together when queue/job signatures change
+- if API is updated but worker is still on an older image, queue jobs may enqueue successfully while failing at worker import/runtime
 
-```bash
-cd api
-source .venv/bin/activate
-python -m rq worker --with-scheduler -u "$REDIS_URL" -P .
-```
+## Testing
 
-Для повноцінної роботи потрібні env-перемінні щонайменше для:
-- `FLASK_SECRET_KEY`
-- `REDIS_URL`
-- `SESSION_COOKIE_SECURE`
-- `FB_APP_ID`
-- `FB_APP_SECRET`
-- `FB_REDIRECT_URI`
-- опціонально проксі:
-  - `INSTAGRAM_AUTH_PROXIES`
-  - `INSTAGRAM_PROXIES`
-  - `PROXIES`
+Playwright smoke coverage exists in [`tests/playwright/admin-api.spec.ts`](C:/dev/giveaway_app/tests/playwright/admin-api.spec.ts).
 
-Без Redis проєкт не зможе нормально працювати, бо на ньому тримаються:
-- Flask Session
-- RQ queue
-- account affinity store
+Covered areas:
 
-## 7. Тести
-
-Є Playwright API smoke tests:
-- `tests/playwright/admin-api.spec.ts`
-
-Базовий запуск:
-
-```bash
-npm install
-npm run test:api
-```
-
-Вони покривають переважно staging admin/account-affinity API:
 - `runtime_info`
-- списки акаунтів і проксі
-- валідацію admin endpoints
-- створення account/proxy
-- bind proxy
-- enqueue account-scoped async jobs
+- admin accounts/proxies collections
+- validation errors for admin endpoints
+- creating proxy + account + binding
+- enqueuing account-scoped async jobs
+- polling `job_status` / `job_result`
 
-Тобто тестове покриття є, але воно вузьке:
-- майже немає покриття Flutter UI;
-- майже немає unit-тестів;
-- тестується не весь продукт, а головно бекенд admin API.
+Current testing limitation:
 
-## 8. Сильні сторони проєкту
+- repository tests validate API contract and queue orchestration better than real Instagram behavior
+- they do not solve server-side Instagram trust/challenge issues
 
-- Є відразу два робочі бізнес-сценарії: офіційний Graph API і session-based Instagram flow.
-- Бекенд уже має async job модель через Redis/RQ.
-- Є device fingerprint / device emulation pipeline.
-- Є multi-account foundation через affinity store.
-- Є локалізація на 3 мови.
-- Є базові smoke-тести для staging.
-- Є audit-дані для прозорого draw у Graph API сценарії.
+## Current Functional Reality
 
-## 9. Слабкі місця та технічний борг
+Verified from recent staging behavior and user-provided logs:
 
-1. README майже порожній.
-   Поточний `README.md` — стандартна заготовка Flutter і не описує реальний продукт.
+- staging API and staging worker are both running
+- account onboarding via `POST /api/admin/accounts/from_sessionid` returns `200`
+- account-scoped fetch jobs enqueue and execute on the worker
+- the worker reaches real Instagram API calls
+- the worker hits Instagram `challenge` behavior when trying to fetch media/comments
 
-2. У репозиторії є ознаки змішаних/дубльованих сценаріїв.
-   Є старі й нові сервіси (`lib/services/auth_service.dart` і `lib/services/appapi/app_auth_service.dart`, аналогічно для participants), а також старі екрани в `lib/screens/` і нові в `lib/screens/login/`.
+This means:
 
-3. `api/app.py` виглядає як застарілий дубль частини `api/main.py`.
+- the account-affinity plumbing is active
+- the queue/import issues have already been resolved
+- the remaining blocker is not job scheduling, but Instagram rejecting server-side access context during media/comment fetch
 
-4. Є недоопрацьована логіка унікальності у simple participants screen.
-   У `lib/screens/login/participants_screen.dart` прямо вказано, що `UniqueBy.comment` і `UniqueBy.both` поки працюють як плейсхолдер, бо модель `Participant` не містить `commentId`.
+## Known Risks And Constraints
 
-5. У репозиторії лежать build artifacts.
-   Папка `docs/` містить зібраний Flutter web build.
+1. The project still relies on Instagram private API behavior through `instagrapi`, which is brittle under server-side IP/device/session mismatches.
+2. `from_sessionid` onboarding should not be confused with verified Instagram authentication; it only persists session context.
+3. Without a trusted/sticky network context or proxy strategy, server-side comment fetch can still fail with challenge/checkpoint behavior.
+4. `README.md` is stale and should not be treated as onboarding documentation.
+5. Some older legacy paths still coexist with new account-affinity flows, so repo intent is transitional rather than fully cleaned up.
 
-6. Поточна структура repo вже досить “операційна”, але ще не приведена до чистої продуктово-документованої форми.
+## Important Files
 
-## 10. Що це за продукт з точки зору бізнесу
+- [`lib/main.dart`](C:/dev/giveaway_app/lib/main.dart): app bootstrap, auth routing, env badge/debug entrypoint
+- [`lib/services/auth_service.dart`](C:/dev/giveaway_app/lib/services/auth_service.dart): legacy auth/session checks plus `hasActiveAccount()`
+- [`lib/services/appapi/app_auth_service.dart`](C:/dev/giveaway_app/lib/services/appapi/app_auth_service.dart): account onboarding from `sessionid`
+- [`lib/services/appapi/app_participants_service.dart`](C:/dev/giveaway_app/lib/services/appapi/app_participants_service.dart): async fetch start and polling
+- [`lib/screens/instagram_login_webview.dart`](C:/dev/giveaway_app/lib/screens/instagram_login_webview.dart): WebView cookie capture and account onboarding trigger
+- [`api/main.py`](C:/dev/giveaway_app/api/main.py): Flask API, login/session/account-affinity endpoints, job status/result endpoints
+- [`api/tasks.py`](C:/dev/giveaway_app/api/tasks.py): RQ worker logic and Instagram fetch behavior
+- [`api/account_affinity.py`](C:/dev/giveaway_app/api/account_affinity.py): Redis-backed account/proxy records and account locks
+- [`api/Procfile`](C:/dev/giveaway_app/api/Procfile): expected web/worker process commands
+- [`api/Dockerfile`](C:/dev/giveaway_app/api/Dockerfile): backend image build and default web command
+- [`tests/playwright/admin-api.spec.ts`](C:/dev/giveaway_app/tests/playwright/admin-api.spec.ts): API smoke tests
 
-Це внутрішній або напівпродуктовий інструмент для проведення розіграшів в Instagram, орієнтований на 2 типи кейсів:
+## Recommended Next Focus
 
-- `Публічні / business / creator сторінки`
-  через Facebook OAuth + Instagram Graph API.
+If work continues from the current state, the next productive area is not the old login endpoint itself, but the account-scoped worker failure mode:
 
-- `Приватні або менш офіційні сценарії`
-  через Instagram session login + `instagrapi`.
-
-Фактично це не просто “рандомайзер”, а комбайн для:
-- авторизації;
-- доступу до Instagram коментарів;
-- фільтрації учасників;
-- випадкового вибору переможців;
-- частково прозорого аудиту результату.
-
-## 11. Якщо передавати цей проєкт в інший чат, коротко
-
-Можна описати так:
-
-> Це Flutter + Flask/Redis проєкт для проведення Instagram giveaway.
-> Він підтримує 2 режими: офіційний Facebook/Instagram Graph API flow для business/creator акаунтів і session-based Instagram flow через instagrapi.
-> Flutter-клієнт керує логіном, вибором поста і відображенням результатів, а Flask-бекенд тримає сесії, працює з Facebook OAuth, запускає async jobs через RQ і зберігає account/proxy state у Redis.
-> У проєкті вже є staging smoke tests, локалізація та базовий multi-account фундамент, але є техборг: слабка документація, дубльовані сервіси/екрани, застарілі файли, артефакти збірки і кілька не доведених до кінця ділянок логіки.
-
-## 12. Найважливіші файли
-
-- `lib/main.dart` — старт Flutter app і маршрути
-- `lib/utils/constants.dart` — конфіг API base URL
-- `lib/screens/login/app_login_screen.dart` — вибір сценарію входу
-- `lib/screens/password_login_screen.dart` — Instagram login/password + session fallback
-- `lib/screens/login/participants_screen.dart` — simple draw flow
-- `lib/screens/fb_home_screen.dart` — Facebook flow entry
-- `lib/screens/ig_media_screen.dart` — список медіа
-- `lib/screens/ig_comments_screen.dart` — коментарі, фільтри, draw
-- `lib/services/api_client.dart` — Dio + cookies
-- `api/main.py` — основний Flask API
-- `api/tasks.py` — async worker logic
-- `api/account_affinity.py` — аккаунти/проксі в Redis
-- `api/fb_graph.py` — інтеграція з Graph API
-- `tests/playwright/admin-api.spec.ts` — staging smoke tests
-
-## 13. Моя коротка оцінка стану
-
-Проєкт уже не схожий на прототип “з нуля”: у ньому є кілька реальних робочих флоу, інфраструктурна логіка, staging tests і production-like session handling.
-
-Але він ще не “відполірований”:
-- документація слабка;
-- структура частково роз’їхалась;
-- є техборг у файлах і конфігах;
-- потрібна чистка перед передачею команді або масштабуванням.
-
-Окремо вже зроблено кілька безпечних cleanup-кроків:
-- прибрано дублікати ключів у локалізаціях `app_uk.arb` та `app_fr.arb`;
-- прибрано явний мертвий код у `api/tasks.py`;
-- узгоджено Railway/Docker path через `railway.json -> api/Dockerfile`, з Railway `Root Directory = /api`.
-
-Тобто це `працюючий прикладний інструмент з реальним функціоналом`, але не до кінця приведений до чистого продуктового стану.
+- classify Instagram challenge failures explicitly instead of surfacing them as generic internal errors
+- update account status when worker-side challenge occurs
+- improve client UX around account state and retry behavior
+- only revisit proxy/network strategy if server-side Instagram comment fetch remains a required capability
