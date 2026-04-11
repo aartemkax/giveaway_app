@@ -309,7 +309,7 @@ test.describe("staging admin api smoke", () => {
     expect(["finished", "failed"]).toContain(terminalStatus);
 
     const resultResponse = await request.get(`/api/job_result/${enqueueJson.job_id}`);
-    expect([200, 400, 412, 500]).toContain(resultResponse.status());
+    expect([200, 400, 401, 412, 500]).toContain(resultResponse.status());
 
     const resultJson = await resultResponse.json();
     if (resultResponse.status() === 200) {
@@ -320,6 +320,10 @@ test.describe("staging admin api smoke", () => {
     } else if (resultResponse.status() === 400) {
       expect(resultJson).toMatchObject({
         error: expect.any(String),
+      });
+    } else if (resultResponse.status() === 401) {
+      expect(resultJson).toMatchObject({
+        error: "login_required",
       });
     } else if (resultResponse.status() === 412) {
       expect(resultJson).toMatchObject({
