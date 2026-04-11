@@ -14,7 +14,11 @@ function makeAccountId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
-async function createAdminAccount(request: any, accountId: string) {
+async function createAdminAccount(
+  request: any,
+  accountId: string,
+  overrides: Record<string, unknown> = {},
+) {
   const response = await request.post("/api/admin/accounts", {
     data: {
       account_id: accountId,
@@ -31,6 +35,7 @@ async function createAdminAccount(request: any, accountId: string) {
         device_agent: "Instagram 269.0.0.18.75 Android",
         region: "UA",
       },
+      ...overrides,
     },
   });
 
@@ -171,6 +176,33 @@ test.describe("staging admin api smoke", () => {
     });
   });
 
+  test("account-scoped fetch blocks challenge-state accounts before enqueue", async ({
+    request,
+  }) => {
+    const accountId = makeAccountId("acc-challenge");
+    await createAdminAccount(request, accountId, {
+      status: "challenge",
+      challenge_reason: "worker_media_fetch_challenge",
+    });
+
+    const response = await request.post(
+      `/api/admin/accounts/${accountId}/fetch_participants_async`,
+      {
+        data: {
+          post_url: testPostUrl,
+        },
+      },
+    );
+
+    expect(response.status()).toBe(412);
+    expect(await response.json()).toMatchObject({
+      error: "instagram_challenge",
+      account_id: accountId,
+      account_status: "challenge",
+      challenge_reason: "worker_media_fetch_challenge",
+    });
+  });
+
   test("can create proxy, account, bind them, and enqueue account-scoped job", async ({
     request,
   }) => {
@@ -277,7 +309,7 @@ test.describe("staging admin api smoke", () => {
     expect(["finished", "failed"]).toContain(terminalStatus);
 
     const resultResponse = await request.get(`/api/job_result/${enqueueJson.job_id}`);
-    expect([200, 400, 500]).toContain(resultResponse.status());
+    expect([200, 400, 412, 500]).toContain(resultResponse.status());
 
     const resultJson = await resultResponse.json();
     if (resultResponse.status() === 200) {
@@ -288,6 +320,10 @@ test.describe("staging admin api smoke", () => {
     } else if (resultResponse.status() === 400) {
       expect(resultJson).toMatchObject({
         error: expect.any(String),
+      });
+    } else if (resultResponse.status() === 412) {
+      expect(resultJson).toMatchObject({
+        error: "instagram_challenge",
       });
     } else {
       expect(resultJson).toMatchObject({

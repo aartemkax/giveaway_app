@@ -39,7 +39,8 @@ Important note:
 
 - [README.md](/Users/starlord/giveaway_app/README.md)
 - [PROJECT_SUMMARY_FOR_CHAT.md](/Users/starlord/giveaway_app/PROJECT_SUMMARY_FOR_CHAT.md)
-- [handbook/ARCHITECTURE.md](/Users/starlord/giveaway_app/handbook/ARCHITECTURE.md)
+- [docs/ARCHITECTURE.md](/Users/starlord/giveaway_app/docs/ARCHITECTURE.md)
+- [docs/CODEBASE_NOTES.md](/Users/starlord/giveaway_app/docs/CODEBASE_NOTES.md)
 - [.env.example](/Users/starlord/giveaway_app/.env.example)
 - [api/.env.example](/Users/starlord/giveaway_app/api/.env.example)
 - [api/Procfile](/Users/starlord/giveaway_app/api/Procfile)

@@ -1,168 +1,156 @@
 # giveaway_app
 
-`giveaway_app` is a Flutter client with a Flask/Redis backend for running Instagram giveaways.
+`giveaway_app` is a Flutter client plus Flask backend for Instagram/Facebook giveaway workflows.
 
-The project supports two main operating modes:
+The repository supports two main product flows:
 
 1. `Facebook / Instagram Graph API flow`
-   For Facebook-connected Instagram business or creator accounts. The app uses Facebook OAuth, loads available Instagram accounts, fetches media and comments through Graph API, and can run a filtered draw with audit data.
+   - user signs in with Facebook
+   - app loads connected Instagram accounts
+   - media and comments are fetched through Graph API
+   - winners are selected from the filtered participant pool
 
-2. `Instagram session / instagrapi flow`
-   For private or less official scenarios. The app logs into Instagram with login/password or `sessionid`, stores the session server-side, fetches participants asynchronously through `instagrapi`, and lets the client pick winners from the returned pool.
+2. `Instagram session / account-affinity flow`
+   - user signs in through Instagram login/password or WebView session capture
+   - backend stores session/device context
+   - participant fetch runs asynchronously through Redis/RQ
+   - client polls job status and then performs winner selection
 
 ## What The Product Does
 
 At a high level the system combines:
 
-- login and session handling;
-- Instagram account/media/comment access;
-- participant filtering;
-- winner selection;
-- account/proxy management for backend jobs;
-- basic staging smoke coverage for admin endpoints.
+- login and session handling
+- Instagram account/media/comment access
+- participant filtering
+- winner selection
+- async backend jobs for participant loading
+- staging verification through API smoke tests
 
 ## Tech Stack
 
-- Flutter / Dart client
-- Riverpod for state management
-- Dio + cookie jar for HTTP and session cookies
-- Flask API
-- Redis for server session storage
-- RQ for background jobs
-- `instagrapi` for Instagram session-based access
-- Facebook Graph API for official account-based access
-- Playwright for API smoke tests
+- Flutter / Dart
+- Riverpod
+- Dio + cookie jar
+- Flask
+- Redis
+- RQ
+- `instagrapi`
+- Facebook Graph API
+- Playwright
 
-## Repository Structure
+## Active Project Shape
 
-- [lib/main.dart](/Users/starlord/giveaway_app/lib/main.dart): Flutter entrypoint and routing
-- [lib/screens/login/app_login_screen.dart](/Users/starlord/giveaway_app/lib/screens/login/app_login_screen.dart): entry screen with flow selection
-- [lib/screens/password_login_screen.dart](/Users/starlord/giveaway_app/lib/screens/password_login_screen.dart): Instagram login/password flow
-- [lib/screens/fb_home_screen.dart](/Users/starlord/giveaway_app/lib/screens/fb_home_screen.dart): Facebook flow landing screen
-- [lib/screens/ig_media_screen.dart](/Users/starlord/giveaway_app/lib/screens/ig_media_screen.dart): Graph API media browser
-- [lib/screens/ig_comments_screen.dart](/Users/starlord/giveaway_app/lib/screens/ig_comments_screen.dart): comments, filters, draw
-- [lib/screens/login/participants_screen.dart](/Users/starlord/giveaway_app/lib/screens/login/participants_screen.dart): session-based participant draw
-- [api/main.py](/Users/starlord/giveaway_app/api/main.py): main Flask API
-- [api/tasks.py](/Users/starlord/giveaway_app/api/tasks.py): background worker logic
-- [api/account_affinity.py](/Users/starlord/giveaway_app/api/account_affinity.py): account/proxy registry in Redis
-- [tests/playwright/admin-api.spec.ts](/Users/starlord/giveaway_app/tests/playwright/admin-api.spec.ts): staging admin API smoke tests
-- [PROJECT_SUMMARY_FOR_CHAT.md](/Users/starlord/giveaway_app/PROJECT_SUMMARY_FOR_CHAT.md): handoff summary for other chats
+Main active entrypoints:
 
-## How To Run
+- [`lib/main.dart`](lib/main.dart)
+- [`api/main.py`](api/main.py)
+- [`api/tasks.py`](api/tasks.py)
+- [`api/account_affinity.py`](api/account_affinity.py)
+- [`tests/playwright/admin-api.spec.ts`](tests/playwright/admin-api.spec.ts)
+- [`PROJECT_SUMMARY_FOR_CHAT.md`](PROJECT_SUMMARY_FOR_CHAT.md)
 
-### 1. Flutter Client
+Important note:
+
+- `docs/` contains both handwritten docs and built Flutter web artifacts
+- for repo context, prefer the markdown files explicitly linked below
+
+## Run The Project
+
+### Flutter client
 
 Prerequisites:
 
 - Flutter SDK
-- a root `.env` file
+- root `.env`
 
-Minimal `.env`:
+Minimum root `.env`:
 
 ```env
 API_BASE_URL=http://localhost:8080
 ```
 
-You can also start from [.env.example](/Users/starlord/giveaway_app/.env.example).
-
-Install dependencies and run:
+Install and run:
 
 ```bash
 flutter pub get
 flutter run
 ```
 
-The app reads `API_BASE_URL` from [lib/utils/constants.dart](/Users/starlord/giveaway_app/lib/utils/constants.dart). Default fallback is `http://10.0.2.2:8080`.
+The app reads `API_BASE_URL` through [`lib/utils/constants.dart`](lib/utils/constants.dart).
 
-### 2. Backend API
+### Backend API
 
 Prerequisites:
 
 - Python 3.11
 - Redis
-- a backend env file in `api/`
+- `api/.env`
 
-Create and activate a virtual environment, then install dependencies:
+Setup:
 
 ```bash
 cd api
-python3 -m venv .venv
-source .venv/bin/activate
+python -m venv .venv
+. .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Start Redis locally if you do not already have it running.
-
-Run the Flask API locally:
+Run the API:
 
 ```bash
 cd api
-source .venv/bin/activate
+. .venv/bin/activate
 python main.py
 ```
 
-The API runs on port `8080` by default.
+Default local port:
 
-### 3. Background Worker
+- `8080`
 
-Async participant fetching depends on RQ, so for the session-based flow you also need a worker:
+### Background worker
+
+Async participant loading requires the RQ worker:
 
 ```bash
 cd api
-source .venv/bin/activate
+. .venv/bin/activate
 python -m rq worker --with-scheduler -u "$REDIS_URL" -P .
 ```
 
-The production-style commands are also documented in [api/Procfile](/Users/starlord/giveaway_app/api/Procfile).
-
-## Deployment Notes
-
-Current canonical deploy files:
-
-- [railway.json](/Users/starlord/giveaway_app/railway.json)
-- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile)
-- [api/Procfile](/Users/starlord/giveaway_app/api/Procfile)
-
-Current deploy path:
-
-- Railway should build using `api/Dockerfile`
-- Railway service Root Directory should remain `/api`
-- active backend entrypoint remains [api/main.py](/Users/starlord/giveaway_app/api/main.py)
-- [api/Procfile](/Users/starlord/giveaway_app/api/Procfile) uses `api.main:app` from the repository root
-- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) is written for Railway build context rooted at `/api`
-- [api/Dockerfile](/Users/starlord/giveaway_app/api/Dockerfile) runs `main:app` inside the container because `/api` contents are copied into `/app`
+Expected runtime process shape is documented in [`api/Procfile`](api/Procfile).
 
 ## Required Environment Variables
 
-### Flutter `.env`
+### Root `.env` for Flutter
 
 Required:
 
-- `API_BASE_URL`: backend base URL used by the app
+- `API_BASE_URL`
 
 Optional:
 
-- `GEO_SERVICE_URL`: overrides the geo lookup endpoint used by the device service
+- `GEO_SERVICE_URL`
 
-Reference file:
+Reference:
 
-- [.env.example](/Users/starlord/giveaway_app/.env.example)
+- [`.env.example`](.env.example)
 
-### Backend `api/.env`
+### `api/.env` for backend
 
-Required for a working local backend:
+Required for practical local backend use:
 
 - `FLASK_SECRET_KEY`
 - `REDIS_URL`
 - `SESSION_COOKIE_SECURE`
 
-Required for Facebook / Graph API flow:
+Required for Graph API flow:
 
 - `FB_APP_ID`
 - `FB_APP_SECRET`
 - `FB_REDIRECT_URI`
 
-Optional for Instagram session handling and operations:
+Optional or flow-specific:
 
 - `IG_USERNAME`
 - `IG_PASSWORD`
@@ -174,33 +162,27 @@ Optional for Instagram session handling and operations:
 - `CORS_ORIGIN`
 - `PORT`
 
-Reference file:
+Reference:
 
-- [api/.env.example](/Users/starlord/giveaway_app/api/.env.example)
+- [`api/.env.example`](api/.env.example)
 
 ## Testing
 
 ### Flutter
 
-The repo currently includes a minimal Flutter startup smoke test.
-It is useful, but still narrower than real screen-level UI coverage:
-
 ```bash
+flutter analyze
 flutter test
 ```
 
-### Playwright API Smoke Tests
-
-The main automated coverage in this repo is Playwright-based API smoke testing.
-
-Install and run:
+### Playwright API smoke tests
 
 ```bash
 npm install
 npm run test:api
 ```
 
-Optional environment variables for smoke tests:
+Optional smoke-test variables:
 
 - `PLAYWRIGHT_BASE_URL`
 - `PLAYWRIGHT_TEST_POST_URL`
@@ -208,36 +190,57 @@ Optional environment variables for smoke tests:
 
 Related files:
 
-- [package.json](/Users/starlord/giveaway_app/package.json)
-- [playwright.config.ts](/Users/starlord/giveaway_app/playwright.config.ts)
-- [tests/playwright/README.md](/Users/starlord/giveaway_app/tests/playwright/README.md)
+- [`package.json`](package.json)
+- [`playwright.config.ts`](playwright.config.ts)
+- [`tests/playwright/README.md`](tests/playwright/README.md)
 
-## Architecture Docs
+## Deployment Notes
 
-- [handbook/ARCHITECTURE.md](/Users/starlord/giveaway_app/handbook/ARCHITECTURE.md)
-- [handbook/CODEBASE_NOTES.md](/Users/starlord/giveaway_app/handbook/CODEBASE_NOTES.md)
-- [handbook/CLEANUP_PLAN.md](/Users/starlord/giveaway_app/handbook/CLEANUP_PLAN.md)
-- [docs/DEV_SETUP.md](/Users/starlord/giveaway_app/docs/DEV_SETUP.md)
-- [docs/DEFINITION_OF_DONE.md](/Users/starlord/giveaway_app/docs/DEFINITION_OF_DONE.md)
-- [docs/TESTING.md](/Users/starlord/giveaway_app/docs/TESTING.md)
-- [docs/RELEASE_CHECKLIST.md](/Users/starlord/giveaway_app/docs/RELEASE_CHECKLIST.md)
-- [docs/PROCESS_RETRO.md](/Users/starlord/giveaway_app/docs/PROCESS_RETRO.md)
+Current deploy files:
 
-## Current State
+- [`railway.json`](railway.json)
+- [`api/Dockerfile`](api/Dockerfile)
+- [`api/Procfile`](api/Procfile)
 
-This is already a working application with multiple real flows, but it is still in a cleanup phase.
+Current deploy reality:
 
-Known weak spots:
+- Railway builds from `api/Dockerfile`
+- Railway service Root Directory should be `api`
+- active backend entrypoint is [`api/main.py`](api/main.py)
+- web service runs `main:app` inside the container
+- worker must be deployed in sync with API when queue/job signatures change
 
-- documentation is being built out now;
-- some services and screens overlap old and new approaches;
-- there is visible technical debt in configuration and file structure;
-- test coverage is still narrow compared to the actual product surface.
+## Current Product Reality
+
+The repository is already beyond a simple prototype, but it is still in a transition phase.
+
+Important current facts:
+
+- Graph API flow exists
+- legacy session-based backend flow still exists
+- new account-affinity flow exists and is actively being wired in
+- staging API and worker are running
+- account-affinity jobs execute
+- the main remaining blocker is worker-side Instagram challenge behavior during server-side media/comment fetch
+
+## Docs You Should Read First
+
+- [`PROJECT_SUMMARY_FOR_CHAT.md`](PROJECT_SUMMARY_FOR_CHAT.md)
+- [`docs/ROADMAP_14_DAYS.md`](docs/ROADMAP_14_DAYS.md)
+- [`docs/DEV_SETUP.md`](docs/DEV_SETUP.md)
+- [`docs/TESTING.md`](docs/TESTING.md)
+- [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md)
+- [`docs/DOCS_POLICY.md`](docs/DOCS_POLICY.md)
+
+As more repo structure is documented, also use:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/CODEBASE_NOTES.md`](docs/CODEBASE_NOTES.md)
 
 ## Handoff
 
-If you need to transfer project context to another chat, start with:
+If you need to transfer context into another chat, start with:
 
-- [PROJECT_SUMMARY_FOR_CHAT.md](/Users/starlord/giveaway_app/PROJECT_SUMMARY_FOR_CHAT.md)
+- [`PROJECT_SUMMARY_FOR_CHAT.md`](PROJECT_SUMMARY_FOR_CHAT.md)
 
-That file is intended to stay current and act as the fast project brief.
+That file is the canonical short handoff document for the repo.

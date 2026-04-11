@@ -393,6 +393,20 @@ def admin_accounts():
         session_settings,
         device_profile,
     )
+    explicit_status = (data.get("status") or "").strip()
+    if explicit_status:
+        record.status = explicit_status
+    if "challenge_reason" in data:
+        record.challenge_reason = (data.get("challenge_reason") or None)
+    if "notes" in data:
+        record.notes = (data.get("notes") or None)
+    if "cooldown_until" in data:
+        raw_cooldown_until = data.get("cooldown_until")
+        try:
+            record.cooldown_until = int(raw_cooldown_until) if raw_cooldown_until is not None else None
+        except (TypeError, ValueError):
+            return jsonify({"error": "validation_error", "detail": "cooldown_until must be an integer timestamp"}), 400
+    affinity_store.put_account(record)
 
     proxy_id = (data.get("proxy_id") or "").strip()
     proxy_payload = None
@@ -571,6 +585,22 @@ def admin_account_fetch_async(account_id):
     record = affinity_store.get_account(account_id)
     if not record:
         return jsonify({"error": "not_found", "detail": "account not found"}), 404
+    if record.status == "challenge":
+        return jsonify({
+            "error": "instagram_challenge",
+            "detail": "account is in challenge state",
+            "account_id": account_id,
+            "account_status": record.status,
+            "challenge_reason": record.challenge_reason,
+        }), 412
+    if record.status == "cooldown" and record.cooldown_until and record.cooldown_until > int(time.time()):
+        return jsonify({
+            "error": "rate_limited",
+            "detail": "account is cooling down",
+            "account_id": account_id,
+            "account_status": record.status,
+            "cooldown_until": record.cooldown_until,
+        }), 429
 
     data = request.get_json(silent=True) or {}
     post_url = (data.get("post_url") or "").strip()
@@ -1308,7 +1338,16 @@ def _job_http_response(job):
     if st == 'finished':
         res = job.result
         if isinstance(res, dict) and 'error' in res:
-            code = 400 if res['error'] in ('invalid_post_url', 'login_required') else 500
+            code_map = {
+                'invalid_post_url': 400,
+                'login_required': 401,
+                'instagram_challenge': 412,
+                'sessionid_challenge': 412,
+                'rate_limited': 429,
+                'account_busy': 409,
+                'account_not_found': 404,
+            }
+            code = code_map.get(res['error'], 500)
             return jsonify(res), code
         return jsonify({'participants': res, 'status': st}), 200
     if st == 'failed':

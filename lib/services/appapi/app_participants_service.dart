@@ -35,7 +35,17 @@ class ParticipantsService {
       );
 
       if (start.statusCode != 202 || start.data is! Map) {
-        throw ApiException('unknown_error', detail: 'unexpected start response');
+        if (start.data is Map) {
+          final m = Map<String, dynamic>.from(start.data as Map);
+          final code = (m['error'] as String?) ?? 'server_error';
+          final detail = m['detail'] as String?;
+          throw ApiException(code, detail: detail, status: start.statusCode);
+        }
+        throw ApiException(
+          'unknown_error',
+          detail: 'unexpected start response',
+          status: start.statusCode,
+        );
       }
 
       final jobId = (start.data['job_id'] ?? '') as String;

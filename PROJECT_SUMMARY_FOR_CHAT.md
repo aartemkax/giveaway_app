@@ -19,9 +19,10 @@ The long-term direction is moving from direct session-based Instagram server log
 
 Verified from repository state:
 
-- `README.md` is still the default Flutter template and is not an authoritative project description.
+- `README.md` is now a real onboarding document and no longer just the default Flutter template.
 - There is no separate `handbook/` directory in this repo.
 - `docs/` currently contains built Flutter web artifacts and is not only handwritten engineering documentation.
+- `docs/ARCHITECTURE.md` and `docs/CODEBASE_NOTES.md` now exist and document current structure and overlap areas.
 - `project_init/` is now a lightweight entrypoint and should not duplicate the canonical summary.
 - `PROJECT_SUMMARY_FOR_CHAT.md` is intended to be the single compact handoff document.
 
@@ -149,7 +150,12 @@ Two main job paths exist:
 
 Important current implementation detail:
 
-- jobs are considered technically successful by RQ even when they return an error dict like `{"error": "internal_error"}`; API then converts that to an HTTP error in `/api/job_result/<job_id>`
+- jobs are considered technically successful by RQ even when they return an error dict
+- API maps domain errors from `/api/job_result/<job_id>` into HTTP statuses such as:
+  - `400` for invalid post URL
+  - `401` for login/session invalid
+  - `412` for Instagram challenge
+  - `429` for cooldown / rate limit
 
 ## Deploy / Runtime
 
@@ -179,6 +185,7 @@ Covered areas:
 - admin accounts/proxies collections
 - validation errors for admin endpoints
 - creating proxy + account + binding
+- challenge-state account blocking before enqueue
 - enqueuing account-scoped async jobs
 - polling `job_status` / `job_result`
 
@@ -186,6 +193,25 @@ Current testing limitation:
 
 - repository tests validate API contract and queue orchestration better than real Instagram behavior
 - they do not solve server-side Instagram trust/challenge issues
+
+## Progress Snapshot
+
+Current stage of the recent account-affinity milestone:
+
+- Done:
+  - staging environment separated and verified
+  - account-affinity store and admin endpoints added
+  - onboarding via `from_sessionid` works
+  - account-scoped jobs enqueue and run on the worker
+  - Playwright smoke coverage exists for internal API flows
+  - canonical summary and docs policy were added
+- In progress:
+  - migration from legacy session-based flows to `account_id`-based flows
+  - UI/UX around account status and retries
+- Blocked:
+  - real server-side Instagram media/comment fetch still hits challenge/checkpoint behavior
+
+This means the architectural foundation of the milestone is in place, but the end-to-end business outcome is not yet fully complete.
 
 ## Current Functional Reality
 
@@ -202,13 +228,14 @@ This means:
 - the account-affinity plumbing is active
 - the queue/import issues have already been resolved
 - the remaining blocker is not job scheduling, but Instagram rejecting server-side access context during media/comment fetch
+- the repository code is being updated to describe that blocker more honestly in account/API state
 
 ## Known Risks And Constraints
 
 1. The project still relies on Instagram private API behavior through `instagrapi`, which is brittle under server-side IP/device/session mismatches.
 2. `from_sessionid` onboarding should not be confused with verified Instagram authentication; it only persists session context.
 3. Without a trusted/sticky network context or proxy strategy, server-side comment fetch can still fail with challenge/checkpoint behavior.
-4. `README.md` is stale and should not be treated as onboarding documentation.
+4. Staging verification can lag behind repository behavior when backend code changes have not yet been deployed.
 5. Some older legacy paths still coexist with new account-affinity flows, so repo intent is transitional rather than fully cleaned up.
 
 ## Important Files
@@ -229,7 +256,6 @@ This means:
 
 If work continues from the current state, the next productive area is not the old login endpoint itself, but the account-scoped worker failure mode:
 
-- classify Instagram challenge failures explicitly instead of surfacing them as generic internal errors
-- update account status when worker-side challenge occurs
 - improve client UX around account state and retry behavior
+- add one more focused verification path around challenge/account-state behavior
 - only revisit proxy/network strategy if server-side Instagram comment fetch remains a required capability

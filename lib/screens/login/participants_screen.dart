@@ -449,6 +449,9 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         return loc.error_invalid_post_url;
       case 'post_unavailable':
         return loc.error_post_unavailable;
+      case 'instagram_challenge':
+      case 'sessionid_challenge':
+        return loc.error_instagram_challenge;
       case 'rate_limited':
         return loc.error_rate_limited;
       case 'proxy_blocked':

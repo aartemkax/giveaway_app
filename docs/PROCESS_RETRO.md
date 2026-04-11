@@ -18,9 +18,8 @@ The biggest improvement came from writing and aligning the core docs:
 - [docs/DEFINITION_OF_DONE.md](/Users/starlord/giveaway_app/docs/DEFINITION_OF_DONE.md)
 - [docs/TESTING.md](/Users/starlord/giveaway_app/docs/TESTING.md)
 - [docs/RELEASE_CHECKLIST.md](/Users/starlord/giveaway_app/docs/RELEASE_CHECKLIST.md)
-- [handbook/ARCHITECTURE.md](/Users/starlord/giveaway_app/handbook/ARCHITECTURE.md)
-- [handbook/CODEBASE_NOTES.md](/Users/starlord/giveaway_app/handbook/CODEBASE_NOTES.md)
-- [handbook/CLEANUP_PLAN.md](/Users/starlord/giveaway_app/handbook/CLEANUP_PLAN.md)
+- [docs/ARCHITECTURE.md](/Users/starlord/giveaway_app/docs/ARCHITECTURE.md)
+- [docs/CODEBASE_NOTES.md](/Users/starlord/giveaway_app/docs/CODEBASE_NOTES.md)
 
 This reduced hidden knowledge and stopped the project from depending entirely on chat history and memory.
 

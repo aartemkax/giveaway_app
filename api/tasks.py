@@ -8,7 +8,14 @@ import time
 import base64
 
 from instagrapi import Client
-from instagrapi.exceptions import PleaseWaitFewMinutes
+from instagrapi.exceptions import (
+    ChallengeRequired,
+    ChallengeUnknownStep,
+    ClientJSONDecodeError,
+    LoginRequired,
+    PleaseWaitFewMinutes,
+)
+from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 from redis import Redis
 import prometheus_client
 from account_affinity import AccountAffinityStore
@@ -38,6 +45,42 @@ CHALLENGE_EXCEPTIONS = prometheus_client.Counter(
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("instagrapi").setLevel(logging.INFO)
 
+
+def _classify_fetch_exception(exc: Exception) -> dict:
+    message = str(exc)
+    message_lower = message.lower()
+
+    if isinstance(exc, PleaseWaitFewMinutes):
+        RATE_LIMIT_EXCEPTIONS.inc()
+        return {"error": "rate_limited"}
+
+    if isinstance(
+        exc,
+        (
+            ChallengeRequired,
+            ChallengeUnknownStep,
+            ClientJSONDecodeError,
+            RequestsJSONDecodeError,
+        ),
+    ) or "challenge" in message_lower or "checkpoint" in message_lower:
+        CHALLENGE_EXCEPTIONS.inc()
+        return {
+            "error": "instagram_challenge",
+            "detail": "instagram challenge/checkpoint during media fetch",
+            "account_status": "challenge",
+            "challenge_reason": "worker_media_fetch_challenge",
+        }
+
+    if isinstance(exc, LoginRequired):
+        return {
+            "error": "login_required",
+            "detail": "instagram session is no longer valid",
+            "account_status": "unverified",
+            "challenge_reason": "worker_session_invalid",
+        }
+
+    return {"error": "internal_error", "detail": message}
+
 def _restore_client_from_settings(user_settings: dict, proxy: str | None = None) -> Client:
     cl = Client(proxy=proxy)
     cl.delay_range = (2.0, 5.0)
@@ -65,12 +108,9 @@ def _fetch_participants_with_client(cl: Client, post_url: str):
 
     try:
         comments = cl.media_comments(media_id, amount=0)
-    except PleaseWaitFewMinutes:
-        RATE_LIMIT_EXCEPTIONS.inc()
-        return {"error": "rate_limited"}
     except Exception as e:
         logging.exception("Error fetching comments")
-        return {"error": "internal_error", "detail": str(e)}
+        return _classify_fetch_exception(e)
 
     participants = []
     seen = set()
@@ -130,8 +170,27 @@ def fetch_account_participants_task(account_id: str, post_url: str):
                 status="cooldown",
                 cooldown_until=int(time.time()) + 15 * 60,
             )
+        elif isinstance(result, dict) and result.get("error") == "instagram_challenge":
+            affinity_store.mark_account_result(
+                account_id,
+                status="challenge",
+                challenge_reason=result.get("challenge_reason") or "worker_media_fetch_challenge",
+                cooldown_until=None,
+            )
+        elif isinstance(result, dict) and result.get("error") == "login_required":
+            affinity_store.mark_account_result(
+                account_id,
+                status="unverified",
+                challenge_reason=result.get("challenge_reason") or "worker_session_invalid",
+                cooldown_until=None,
+            )
         elif isinstance(result, dict) and result.get("error"):
-            affinity_store.mark_account_result(account_id, status=account.status)
+            affinity_store.mark_account_result(
+                account_id,
+                status=account.status,
+                challenge_reason=account.challenge_reason,
+                cooldown_until=account.cooldown_until,
+            )
         else:
             affinity_store.mark_account_result(
                 account_id,
