@@ -185,7 +185,7 @@ The runtime path should be supportable without guessing.
 
 ### Tasks
 
-1. Add a short runbook for diagnosing the active account flow in staging:
+1. Keep a short runbook for diagnosing the active account flow in staging:
    - emulator/app state
    - API logs
    - worker logs
@@ -221,10 +221,10 @@ The runtime path should be supportable without guessing.
 
 The next implementation step should be:
 
-- document and tighten the recovery path after `verify_session_challenge`
+- decide whether repeated `verify_session_challenge` should trigger a network/proxy investment or remain an explicit product recovery boundary
 
 Why this is next:
 
 - the verification boundary now exists and has been verified on the real app flow
-- the next value comes from turning that blocked state into a stable user recovery path
+- the blocked state now has a recovery surface and a staging runbook
 - it gives the project a cleaner decision point before any proxy/network work

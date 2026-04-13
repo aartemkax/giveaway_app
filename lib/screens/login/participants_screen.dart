@@ -87,6 +87,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   bool _loading = false;
   bool _showCelebration = false;
   bool _accountStateLoading = true;
+  bool _accountActionLoading = false;
 
   // Поточний список переможців (результат для відмальовки)
   List<Participant> _participants = [];
@@ -380,6 +381,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     final theme = Theme.of(context);
     final isChallenge = state.status == 'challenge';
     final isCooldown = state.status == 'cooldown';
+    final canRetryVerification =
+        state.status == 'challenge' || state.status == 'unverified';
     final color = isChallenge
         ? Colors.orange.shade900
         : isCooldown
@@ -444,10 +447,12 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                 runSpacing: 8,
                 children: [
                   FilledButton.tonal(
-                    onPressed: isCooldown
-                        ? _loadActiveAccountState
-                        : () => Navigator.of(context)
-                            .pushReplacementNamed('/login'),
+                    onPressed: _accountActionLoading
+                        ? null
+                        : isCooldown
+                            ? _loadActiveAccountState
+                            : () => Navigator.of(context)
+                                .pushReplacementNamed('/login'),
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: color,
@@ -455,7 +460,11 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                     child: Text(primaryActionLabel),
                   ),
                   TextButton(
-                    onPressed: _loadActiveAccountState,
+                    onPressed: _accountActionLoading
+                        ? null
+                        : canRetryVerification
+                            ? _retryAccountVerification
+                            : _loadActiveAccountState,
                     style: TextButton.styleFrom(
                       foregroundColor: Colors.white,
                     ),
@@ -632,6 +641,52 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       _activeAccountState = state;
       _accountStateLoading = false;
     });
+  }
+
+  Future<void> _retryAccountVerification() async {
+    if (_accountActionLoading) return;
+
+    if (mounted) {
+      setState(() => _accountActionLoading = true);
+    }
+
+    try {
+      final state = await _participantsService.verifyActiveAccount();
+      if (!mounted) return;
+
+      setState(() {
+        _activeAccountState = state;
+      });
+
+      if (state == null) {
+        _showSnack(
+          _textByLocale(
+            uk: 'Не вдалося оновити стан акаунта. Спробуйте увійти ще раз.',
+            fallback:
+                'Could not refresh the account state. Please try signing in again.',
+          ),
+        );
+      } else if (!state.isBlocked) {
+        _showSnack(
+          _textByLocale(
+            uk: 'Стан акаунта оновлено. Можна спробувати ще раз.',
+            fallback: 'Account status refreshed. You can try again now.',
+          ),
+        );
+      } else {
+        _showSnack(_buildAccountStateMessage(AppLocalizations.of(context)!, state));
+      }
+    } on ApiException catch (e) {
+      if (_shouldRefreshAccountState(e.code)) {
+        await _loadActiveAccountState();
+      }
+      if (!mounted) return;
+      _showSnack(_mapApiErrorToMessage(e, AppLocalizations.of(context)!));
+    } finally {
+      if (mounted) {
+        setState(() => _accountActionLoading = false);
+      }
+    }
   }
 
   bool _shouldRefreshAccountState(String code) {

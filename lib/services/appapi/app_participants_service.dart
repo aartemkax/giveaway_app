@@ -75,6 +75,24 @@ class ParticipantsService {
     }
   }
 
+  Future<ActiveAccountState?> verifyActiveAccount() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final activeAccountId =
+          (prefs.getString('active_account_id') ?? '').trim();
+      if (activeAccountId.isEmpty) return null;
+
+      await _dio.post('/api/admin/accounts/$activeAccountId/verify');
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status != 401 && status != 404 && status != 412 && status != 429) {
+        throw ApiException.fromDio(e);
+      }
+    }
+
+    return getActiveAccountState();
+  }
+
   Future<List<Participant>> fetchParticipants(
     String postUrl, {
     BuildContext? context,

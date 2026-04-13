@@ -12,6 +12,7 @@ The repository currently contains:
 - an account-affinity store in [`api/account_affinity.py`](C:/dev/giveaway_app/api/account_affinity.py)
 - Railway deploy configuration in [`railway.json`](C:/dev/giveaway_app/railway.json) and [`api/Dockerfile`](C:/dev/giveaway_app/api/Dockerfile)
 - Playwright API smoke tests in [`tests/playwright/admin-api.spec.ts`](C:/dev/giveaway_app/tests/playwright/admin-api.spec.ts)
+- a staging recovery runbook in [`docs/ACCOUNT_RECOVERY_RUNBOOK.md`](C:/dev/giveaway_app/docs/ACCOUNT_RECOVERY_RUNBOOK.md)
 
 The long-term direction is moving from direct session-based Instagram server login toward account-scoped async jobs backed by persisted session/device context.
 
@@ -42,6 +43,7 @@ Current frontend behavior:
 - participants screen now reads active account state from the backend
 - challenge, cooldown, and unverified account states are surfaced as a visible banner instead of only snackbars
 - the draw action is blocked in the UI when the active account is already known to be blocked
+- the participants banner can now trigger a fresh account verification attempt instead of only reloading stale state
 
 Important frontend service flows:
 
@@ -290,3 +292,4 @@ If work continues from the current state, the next productive area is not the ol
 Concrete finish-plan reference:
 
 - [`docs/DELIVERY_PLAN_FINISH_FLOW.md`](C:/dev/giveaway_app/docs/DELIVERY_PLAN_FINISH_FLOW.md) is the current execution plan for finishing the account-based giveaway flow without drifting into unrelated work
+- [`docs/ACCOUNT_RECOVERY_RUNBOOK.md`](C:/dev/giveaway_app/docs/ACCOUNT_RECOVERY_RUNBOOK.md) is the support-oriented diagnosis path for staging account recovery and verification failures

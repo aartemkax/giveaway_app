@@ -8,9 +8,14 @@ import 'package:giveaway_app/services/appapi/app_participants_service.dart';
 
 class _FakeParticipantsService extends ParticipantsService {
   final ActiveAccountState? accountState;
+  final ActiveAccountState? verifiedState;
   bool fetchCalled = false;
+  bool verifyCalled = false;
 
-  _FakeParticipantsService(this.accountState) : super.withDio(Dio());
+  _FakeParticipantsService(
+    this.accountState, {
+    this.verifiedState,
+  }) : super.withDio(Dio());
 
   @override
   Future<ActiveAccountState?> getActiveAccountState() async => accountState;
@@ -22,6 +27,12 @@ class _FakeParticipantsService extends ParticipantsService {
   }) async {
     fetchCalled = true;
     return const [];
+  }
+
+  @override
+  Future<ActiveAccountState?> verifyActiveAccount() async {
+    verifyCalled = true;
+    return verifiedState ?? accountState;
   }
 }
 
@@ -91,6 +102,39 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('LOGIN_SCREEN'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'participants screen retries verification from blocked banner',
+    (tester) async {
+      final service = _FakeParticipantsService(
+        const ActiveAccountState(
+          accountId: 'acc_3',
+          instagramUsername: 'blocked_user',
+          status: 'challenge',
+          challengeReason: 'verify_session_challenge',
+        ),
+        verifiedState: const ActiveAccountState(
+          accountId: 'acc_3',
+          instagramUsername: 'blocked_user',
+          status: 'active',
+        ),
+      );
+
+      await tester.pumpWidget(_wrapForTest(service: service));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(TextButton).first);
+      await tester.pumpAndSettle();
+
+      expect(service.verifyCalled, isTrue);
+
+      final drawButtonFinder = find.byWidgetPredicate(
+        (widget) => widget is ElevatedButton,
+      );
+      final drawButton = tester.widget<ElevatedButton>(drawButtonFinder);
+      expect(drawButton.onPressed, isNotNull);
     },
   );
 }

@@ -247,7 +247,9 @@ Progress on item 2:
 - participants screen now shows backend-driven account-state banners for `challenge`, `cooldown`, and `unverified`
 - retry/draw action is blocked in the UI when the active account is already in a blocked state
 - onboarding now performs an explicit account verification step after `from_sessionid`
-- next related step is to make the verification result more actionable and reduce wasted worker fetch attempts
+- the banner recovery action can now trigger a fresh account verification attempt
+- the staging diagnosis path is now documented in [`docs/ACCOUNT_RECOVERY_RUNBOOK.md`](C:/dev/giveaway_app/docs/ACCOUNT_RECOVERY_RUNBOOK.md)
+- next related step is to decide whether repeated `verify_session_challenge` should push us into proxy/network strategy or remain a product-level recovery boundary
 
 ## Definition Of Success For This Roadmap
 
