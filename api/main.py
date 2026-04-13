@@ -618,6 +618,7 @@ def admin_account_from_current_session():
         )
     except KeyError as exc:
         return jsonify({"error": "not_found", "detail": str(exc)}), 404
+    record = affinity_store.get_account(account_id) or record
 
     return jsonify({
         "account": record.to_dict(),
@@ -683,6 +684,7 @@ def admin_account_from_sessionid():
         )
     except KeyError as exc:
         return jsonify({"error": "not_found", "detail": str(exc)}), 404
+    record = affinity_store.get_account(account_id) or record
 
     return jsonify({
         "account": record.to_dict(),

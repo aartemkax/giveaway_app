@@ -278,6 +278,7 @@ test.describe("staging admin api smoke", () => {
     request,
   }) => {
     const accountId = makeAccountId("acc-sticky");
+    const stickyRegion = makeAccountId("ua-sticky-region");
     const firstProxyId = makeAccountId("pxy-ua-a");
     const secondProxyId = makeAccountId("pxy-ua-b");
 
@@ -285,7 +286,7 @@ test.describe("staging admin api smoke", () => {
       data: {
         proxy_id: firstProxyId,
         proxy_url: "http://127.0.0.1:18081",
-        region: "UA",
+        region: stickyRegion,
         proxy_type: "sticky",
         status: "active",
       },
@@ -296,14 +297,16 @@ test.describe("staging admin api smoke", () => {
       data: {
         proxy_id: secondProxyId,
         proxy_url: "http://127.0.0.1:18082",
-        region: "UA",
+        region: stickyRegion,
         proxy_type: "sticky",
         status: "active",
       },
     });
     expect(secondProxy.ok()).toBeTruthy();
 
-    const onboarding = await createAccountFromSessionId(request, accountId);
+    const onboarding = await createAccountFromSessionId(request, accountId, {
+      preferred_proxy_region: stickyRegion,
+    });
     expect(await onboarding.json()).toMatchObject({
       source: "sessionid",
       account: {
@@ -319,6 +322,7 @@ test.describe("staging admin api smoke", () => {
 
     const repeatedOnboarding = await createAccountFromSessionId(request, accountId, {
       instagram_username: "session_bound_smoke_again",
+      preferred_proxy_region: stickyRegion,
     });
     expect(await repeatedOnboarding.json()).toMatchObject({
       source: "sessionid",
