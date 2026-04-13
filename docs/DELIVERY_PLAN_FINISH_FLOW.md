@@ -33,6 +33,13 @@ Verified from staging and emulator runs:
 - direct app login reaches `/api/login` and can return `401`
 - the sessionid fallback reaches `/api/admin/accounts/from_sessionid`
 - a new account record is created with saved `sessionid` and `deviceInfo`
+- the app now follows that with `/api/admin/accounts/<account_id>/verify`
+- the verify step has been confirmed live on staging in the real emulator flow
+- that verification can already return:
+  - `412`
+  - `status = challenge`
+  - `challenge_reason = verify_session_challenge`
+- after that verification failure, the participants screen lands in a blocked account UX instead of a generic error
 - participant fetch jobs enqueue and run on the worker
 - worker can reach real Instagram media calls
 - worker can fail on media/comment fetch with `instagram_challenge`
@@ -40,7 +47,8 @@ Verified from staging and emulator runs:
 This means:
 
 - the account-affinity system is working
-- the remaining problem is Instagram trust/challenge behavior during server-side fetch
+- the verification boundary is real and no longer theoretical
+- the remaining problem is Instagram trust/challenge behavior during verification and server-side fetch
 
 ## Product Decision We Need To Lock
 
@@ -106,6 +114,7 @@ We need one explicit verification step so the app can distinguish:
 
 - the app can tell the difference between "account saved" and "account usable"
 - blocked accounts are detected before a full participant-fetch job is launched when possible
+- staging emulator flow proves that blocked verification lands in the intended blocked-state screen
 
 ## Workstream C: Decide The Network Strategy
 
@@ -212,10 +221,10 @@ The runtime path should be supportable without guessing.
 
 The next implementation step should be:
 
-- make the verification result more actionable in product and API behavior
+- document and tighten the recovery path after `verify_session_challenge`
 
 Why this is next:
 
-- the verification boundary now exists
-- the next value comes from using it to prevent wasted work and guide recovery
+- the verification boundary now exists and has been verified on the real app flow
+- the next value comes from turning that blocked state into a stable user recovery path
 - it gives the project a cleaner decision point before any proxy/network work

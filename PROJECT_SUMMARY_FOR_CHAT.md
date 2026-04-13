@@ -213,6 +213,7 @@ Current stage of the recent account-affinity milestone:
   - account-affinity store and admin endpoints added
   - onboarding via `from_sessionid` works
   - onboarding now includes an explicit verification step
+  - manual `sessionid -> onboarding -> verify -> participants` was verified on the staging emulator flow
   - account-scoped jobs enqueue and run on the worker
   - Playwright smoke coverage exists for internal API flows
   - canonical summary and docs policy were added
@@ -231,15 +232,27 @@ Verified from recent staging behavior and user-provided logs:
 - staging API and staging worker are both running
 - account onboarding via `POST /api/admin/accounts/from_sessionid` returns `200`
 - onboarding is now followed by `POST /api/admin/accounts/<account_id>/verify`
+- manual sessionid login on the emulator now reaches that exact backend sequence
+- the verified account created during that run was `515132743b69dd7e`
 - account-scoped fetch jobs enqueue and execute on the worker
 - the worker reaches real Instagram API calls
 - the worker hits Instagram `challenge` behavior when trying to fetch media/comments
+- the verification step can already classify the account before draw/fetch:
+  - `412`
+  - `status = challenge`
+  - `challenge_reason = verify_session_challenge`
+- the participants screen now lands in a blocked-state UX with:
+  - visible banner
+  - `Перейти до входу`
+  - `Перевірити ще раз`
+  - blocked draw action
 
 This means:
 
 - the account-affinity plumbing is active
 - the queue/import issues have already been resolved
-- the remaining blocker is not job scheduling, but Instagram rejecting server-side access context during media/comment fetch
+- the verification boundary is now proven end to end in the real staging app flow
+- the remaining blocker is not job scheduling, but Instagram rejecting server-side access context during verification and media/comment fetch
 - the repository code is being updated to describe that blocker more honestly in account/API state
 - the Flutter client now reflects blocked account states before retrying draw/fetch actions
 
