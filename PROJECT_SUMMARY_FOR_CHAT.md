@@ -93,6 +93,7 @@ Important new endpoints:
 - `POST /api/admin/accounts/from_sessionid`
 - `POST /api/admin/accounts/<account_id>/verify`
 - `POST /api/admin/accounts/<account_id>/bind_proxy`
+- `POST /api/admin/accounts/<account_id>/assign_proxy`
 - `POST /api/admin/accounts/<account_id>/sync_session`
 - `POST /api/admin/accounts/<account_id>/fetch_participants_async`
 - `GET /api/job_status/<job_id>`
@@ -128,6 +129,8 @@ Current guarantees from this layer:
 
 - account-scoped Redis records
 - proxy binding support
+- automatic sticky-proxy assignment for session-based onboarding when a matching active proxy is available
+- sticky proxy reuse for repeated onboarding of the same account
 - account lock support to prevent concurrent worker execution
 - account context restoration for background jobs
 

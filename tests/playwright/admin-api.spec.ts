@@ -43,6 +43,36 @@ async function createAdminAccount(
   return response;
 }
 
+async function createAccountFromSessionId(
+  request: any,
+  accountId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  const response = await request.post("/api/admin/accounts/from_sessionid", {
+    data: {
+      account_id: accountId,
+      instagram_username: "session_bound_smoke",
+      sessionid: "12345%3Asmoke-session%3A17%3Aabc",
+      deviceInfo: {
+        device_agent: "Instagram 269.0.0.18.75 Android",
+        region: "UA",
+        settings: {
+          user_agent: "Instagram 269.0.0.18.75 Android",
+          device_settings: {
+            model: "Pixel 7",
+            manufacturer: "Google",
+          },
+          cookies: {},
+        },
+      },
+      ...overrides,
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  return response;
+}
+
 async function waitForJobToFinish(request: any, jobId: string) {
   const deadline = Date.now() + 45_000;
 
@@ -241,6 +271,66 @@ test.describe("staging admin api smoke", () => {
       account_id: accountId,
       account_status: "challenge",
       challenge_reason: "worker_media_fetch_challenge",
+    });
+  });
+
+  test("sessionid onboarding auto-assigns a matching proxy and keeps it sticky", async ({
+    request,
+  }) => {
+    const accountId = makeAccountId("acc-sticky");
+    const firstProxyId = makeAccountId("pxy-ua-a");
+    const secondProxyId = makeAccountId("pxy-ua-b");
+
+    const firstProxy = await request.post("/api/admin/proxies", {
+      data: {
+        proxy_id: firstProxyId,
+        proxy_url: "http://127.0.0.1:18081",
+        region: "UA",
+        proxy_type: "sticky",
+        status: "active",
+      },
+    });
+    expect(firstProxy.ok()).toBeTruthy();
+
+    const secondProxy = await request.post("/api/admin/proxies", {
+      data: {
+        proxy_id: secondProxyId,
+        proxy_url: "http://127.0.0.1:18082",
+        region: "UA",
+        proxy_type: "sticky",
+        status: "active",
+      },
+    });
+    expect(secondProxy.ok()).toBeTruthy();
+
+    const onboarding = await createAccountFromSessionId(request, accountId);
+    expect(await onboarding.json()).toMatchObject({
+      source: "sessionid",
+      account: {
+        account_id: accountId,
+        proxy_id: firstProxyId,
+      },
+      proxy: {
+        proxy_id: firstProxyId,
+        assigned_account_id: accountId,
+      },
+      proxy_assignment: "auto",
+    });
+
+    const repeatedOnboarding = await createAccountFromSessionId(request, accountId, {
+      instagram_username: "session_bound_smoke_again",
+    });
+    expect(await repeatedOnboarding.json()).toMatchObject({
+      source: "sessionid",
+      account: {
+        account_id: accountId,
+        proxy_id: firstProxyId,
+      },
+      proxy: {
+        proxy_id: firstProxyId,
+        assigned_account_id: accountId,
+      },
+      proxy_assignment: "auto",
     });
   });
 

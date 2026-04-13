@@ -199,6 +199,44 @@ class AccountAffinityStore:
         self.put_proxy(proxy)
         return account, proxy
 
+    def auto_bind_proxy(
+        self,
+        account_id: str,
+        *,
+        preferred_region: str | None = None,
+    ) -> tuple[AccountRecord, ProxyRecord] | None:
+        account = self.get_account(account_id)
+        if not account:
+            raise KeyError(f"account {account_id} not found")
+
+        if account.proxy_id:
+            current_proxy = self.get_proxy(account.proxy_id)
+            if current_proxy and current_proxy.status == "active":
+                if current_proxy.assigned_account_id != account_id:
+                    current_proxy.assigned_account_id = account_id
+                    self.put_proxy(current_proxy)
+                return account, current_proxy
+
+        preferred_region_norm = (preferred_region or "").strip().lower()
+        available: list[ProxyRecord] = []
+        fallback: list[ProxyRecord] = []
+        for proxy in self.list_proxies():
+            if proxy.status != "active":
+                continue
+            if proxy.assigned_account_id:
+                continue
+            region_norm = (proxy.region or "").strip().lower()
+            if preferred_region_norm and region_norm == preferred_region_norm:
+                available.append(proxy)
+            else:
+                fallback.append(proxy)
+
+        target = (available or fallback)
+        if not target:
+            return None
+
+        return self.bind_proxy(account_id, target[0].proxy_id)
+
     def acquire_account_lock(self, account_id: str, ttl_sec: int = 900) -> bool:
         return bool(self.redis.set(self._lock_key(account_id), "1", nx=True, ex=ttl_sec))
 

@@ -143,14 +143,15 @@ If Instagram keeps challenging server-side fetch:
 - move the supported product flow to a different mechanism
 - keep challenge handling honest in UI and docs
 
-### Immediate Rule
+### Current Decision
 
-Do not mix these paths implicitly.
+The project has now chosen Path 1 for the next implementation slice:
 
-The team must explicitly choose one of:
+- invest in sticky proxy per account
+- keep session/device context stable per account
+- make onboarding auto-bind a matching active proxy when available
 
-- "we will invest in making worker fetch reliable"
-- "we will not promise reliable server-side fetch without a different runtime strategy"
+This does not yet prove server-side fetch is reliable. It does mean new work should optimize for sticky account-bound network context instead of adding more fallback auth paths.
 
 ## Workstream D: Close The Loop In The Client
 
@@ -208,7 +209,10 @@ The runtime path should be supportable without guessing.
 2. Refine client recovery UX around verification/challenge states.
 3. Block obviously wasted worker fetch attempts for accounts still known to be unusable.
 4. Document the exact staging diagnosis flow.
-5. Only then decide whether to invest in sticky proxy/network strategy.
+5. Roll out sticky proxy/network strategy in a narrow way:
+   - auto-assign one active proxy to an onboarding account
+   - keep that proxy sticky across repeated onboarding and verification attempts
+   - validate the effect on `verify_session_challenge`
 
 ## What Not To Do
 
@@ -221,10 +225,10 @@ The runtime path should be supportable without guessing.
 
 The next implementation step should be:
 
-- decide whether repeated `verify_session_challenge` should trigger a network/proxy investment or remain an explicit product recovery boundary
+- finish the first sticky-proxy slice and validate it on staging end to end
 
 Why this is next:
 
-- the verification boundary now exists and has been verified on the real app flow
-- the blocked state now has a recovery surface and a staging runbook
-- it gives the project a cleaner decision point before any proxy/network work
+- the product decision has been made: we are investing in account-bound proxy/network strategy
+- verification and blocked-state UX already exist, so the next meaningful variable is the network context itself
+- this is the smallest change that can move `verify_session_challenge` from a known blocker to a measurable experiment

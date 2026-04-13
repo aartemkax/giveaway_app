@@ -80,6 +80,7 @@ PROXIES = (
     or _parse_proxy_list(os.getenv("PROXIES"))
 )
 USE_PROXY = bool(PROXIES) and os.getenv("USE_PROXY", "true").lower() not in {"0", "false", "no"}
+AUTO_ASSIGN_ACCOUNT_PROXY = os.getenv("AUTO_ASSIGN_ACCOUNT_PROXY", "true").lower() not in {"0", "false", "no"}
 logger.info("Proxy auth %s (%s configured)", "enabled" if USE_PROXY else "disabled", len(PROXIES))
 
 # ── FB Graph (імпорт після dotenv) ────────────────────────────────────────────
@@ -180,6 +181,47 @@ def _build_client_from_settings(
     )
     cl.delay_range = [2, 5]
     return cl
+
+
+def _extract_preferred_proxy_region(data: dict | None, device_info: dict | None = None) -> str:
+    payload = data or {}
+    device = device_info or {}
+    geo = device.get("geo") or {}
+
+    for candidate in (
+        payload.get("preferred_proxy_region"),
+        payload.get("proxy_region"),
+        device.get("region"),
+        device.get("country_iso"),
+        geo.get("country_code"),
+        geo.get("region_code"),
+    ):
+        value = str(candidate or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _resolve_account_proxy_binding(
+    account_id: str,
+    *,
+    explicit_proxy_id: str = "",
+    preferred_region: str = "",
+    auto_assign: bool = False,
+) -> tuple[dict | None, str | None]:
+    if explicit_proxy_id:
+        _, proxy = affinity_store.bind_proxy(account_id, explicit_proxy_id)
+        return proxy.to_dict(), "explicit"
+
+    if auto_assign and AUTO_ASSIGN_ACCOUNT_PROXY:
+        bound = affinity_store.auto_bind_proxy(account_id, preferred_region=preferred_region)
+        if bound:
+            _, proxy = bound
+            return proxy.to_dict(), "auto"
+
+    context = affinity_store.get_account_context(account_id) or {}
+    proxy = context.get("proxy")
+    return proxy.to_dict() if proxy else None, None
 
 
 def _verify_affinity_account(account_id: str) -> tuple[dict, int]:
@@ -461,6 +503,7 @@ def runtime_info():
         "cwd": os.getcwd(),
         "use_proxy": USE_PROXY,
         "proxy_count": len(PROXIES),
+        "auto_assign_account_proxy": AUTO_ASSIGN_ACCOUNT_PROXY,
     }, 200)
 
 @app.route("/api/admin/proxies", methods=["GET", "POST", "OPTIONS"])
@@ -565,17 +608,21 @@ def admin_account_from_current_session():
     )
 
     proxy_id = (data.get("proxy_id") or "").strip()
-    proxy_payload = None
-    if proxy_id:
-        try:
-            record, proxy = affinity_store.bind_proxy(account_id, proxy_id)
-            proxy_payload = proxy.to_dict()
-        except KeyError as exc:
-            return jsonify({"error": "not_found", "detail": str(exc)}), 404
+    preferred_region = _extract_preferred_proxy_region(data, current_device)
+    try:
+        proxy_payload, proxy_assignment = _resolve_account_proxy_binding(
+            account_id,
+            explicit_proxy_id=proxy_id,
+            preferred_region=preferred_region,
+            auto_assign=True,
+        )
+    except KeyError as exc:
+        return jsonify({"error": "not_found", "detail": str(exc)}), 404
 
     return jsonify({
         "account": record.to_dict(),
         "proxy": proxy_payload,
+        "proxy_assignment": proxy_assignment,
         "source": "current_session",
     }), 200
 
@@ -626,17 +673,21 @@ def admin_account_from_sessionid():
     affinity_store.put_account(record)
 
     proxy_id = (data.get("proxy_id") or "").strip()
-    proxy_payload = None
-    if proxy_id:
-        try:
-            record, proxy = affinity_store.bind_proxy(account_id, proxy_id)
-            proxy_payload = proxy.to_dict()
-        except KeyError as exc:
-            return jsonify({"error": "not_found", "detail": str(exc)}), 404
+    preferred_region = _extract_preferred_proxy_region(data, device_info)
+    try:
+        proxy_payload, proxy_assignment = _resolve_account_proxy_binding(
+            account_id,
+            explicit_proxy_id=proxy_id,
+            preferred_region=preferred_region,
+            auto_assign=True,
+        )
+    except KeyError as exc:
+        return jsonify({"error": "not_found", "detail": str(exc)}), 404
 
     return jsonify({
         "account": record.to_dict(),
         "proxy": proxy_payload,
+        "proxy_assignment": proxy_assignment,
         "source": "sessionid",
     }), 200
 
@@ -672,6 +723,40 @@ def admin_bind_proxy(account_id):
     return jsonify({
         "account": account.to_dict(),
         "proxy": proxy.to_dict(),
+    }), 200
+
+
+@app.route("/api/admin/accounts/<account_id>/assign_proxy", methods=["POST", "OPTIONS"])
+def admin_assign_proxy(account_id):
+    if request.method == "OPTIONS":
+        return "", 204
+
+    data = request.get_json(silent=True) or {}
+    preferred_region = _extract_preferred_proxy_region(data)
+
+    try:
+        proxy_payload, proxy_assignment = _resolve_account_proxy_binding(
+            account_id,
+            explicit_proxy_id="",
+            preferred_region=preferred_region,
+            auto_assign=True,
+        )
+    except KeyError as exc:
+        return jsonify({"error": "not_found", "detail": str(exc)}), 404
+
+    if not proxy_payload:
+        return jsonify({
+            "error": "proxy_unavailable",
+            "detail": "no active unassigned proxy available",
+            "account_id": account_id,
+            "preferred_region": preferred_region or None,
+        }), 409
+
+    record = affinity_store.get_account(account_id)
+    return jsonify({
+        "account": record.to_dict() if record else None,
+        "proxy": proxy_payload,
+        "proxy_assignment": proxy_assignment,
     }), 200
 
 @app.route("/api/admin/accounts/<account_id>/sync_session", methods=["POST", "OPTIONS"])
