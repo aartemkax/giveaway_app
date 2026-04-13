@@ -53,6 +53,7 @@ Important frontend service flows:
   - `createAccountFromSessionId()` stores:
     - `auth_method = ig_account`
     - `active_account_id`
+  - onboarding now follows `from_sessionid` with an explicit account verification call
 - [`lib/services/appapi/app_participants_service.dart`](C:/dev/giveaway_app/lib/services/appapi/app_participants_service.dart)
   - starts async participant fetch
   - prefers `/api/admin/accounts/<account_id>/fetch_participants_async` when `active_account_id` exists
@@ -61,6 +62,7 @@ Important frontend service flows:
 - [`lib/screens/instagram_login_webview.dart`](C:/dev/giveaway_app/lib/screens/instagram_login_webview.dart)
   - extracts `sessionid` from Instagram WebView cookies
   - sends it to `/api/admin/accounts/from_sessionid`
+  - triggers an immediate verification step for the new account
   - does not treat `sessionid` onboarding as a server-side Instagram login anymore
 
 ## Backend
@@ -87,6 +89,7 @@ Important new endpoints:
 - `GET /api/admin/accounts/<account_id>`
 - `POST /api/admin/accounts/from_current_session`
 - `POST /api/admin/accounts/from_sessionid`
+- `POST /api/admin/accounts/<account_id>/verify`
 - `POST /api/admin/accounts/<account_id>/bind_proxy`
 - `POST /api/admin/accounts/<account_id>/sync_session`
 - `POST /api/admin/accounts/<account_id>/fetch_participants_async`
@@ -131,7 +134,8 @@ What `from_sessionid` actually does:
 - accepts raw `sessionid` plus `deviceInfo.settings`
 - stores those cookies/settings as account session state
 - marks the record as coming from `sessionid` source
-- does **not** validate the session with Instagram at onboarding time
+- the client now follows onboarding with `POST /api/admin/accounts/<account_id>/verify`
+- that verification is a lightweight authenticated probe, not a guarantee that media/comment fetch will succeed
 
 ## Background Jobs
 
@@ -208,6 +212,7 @@ Current stage of the recent account-affinity milestone:
   - staging environment separated and verified
   - account-affinity store and admin endpoints added
   - onboarding via `from_sessionid` works
+  - onboarding now includes an explicit verification step
   - account-scoped jobs enqueue and run on the worker
   - Playwright smoke coverage exists for internal API flows
   - canonical summary and docs policy were added
@@ -225,6 +230,7 @@ Verified from recent staging behavior and user-provided logs:
 
 - staging API and staging worker are both running
 - account onboarding via `POST /api/admin/accounts/from_sessionid` returns `200`
+- onboarding is now followed by `POST /api/admin/accounts/<account_id>/verify`
 - account-scoped fetch jobs enqueue and execute on the worker
 - the worker reaches real Instagram API calls
 - the worker hits Instagram `challenge` behavior when trying to fetch media/comments
@@ -240,7 +246,7 @@ This means:
 ## Known Risks And Constraints
 
 1. The project still relies on Instagram private API behavior through `instagrapi`, which is brittle under server-side IP/device/session mismatches.
-2. `from_sessionid` onboarding should not be confused with verified Instagram authentication; it only persists session context.
+2. `from_sessionid` onboarding plus verification should still not be confused with guaranteed media/comment fetch success.
 3. Without a trusted/sticky network context or proxy strategy, server-side comment fetch can still fail with challenge/checkpoint behavior.
 4. Staging verification can lag behind repository behavior when backend code changes have not yet been deployed.
 5. Some older legacy paths still coexist with new account-affinity flows, so repo intent is transitional rather than fully cleaned up.
@@ -266,3 +272,8 @@ If work continues from the current state, the next productive area is not the ol
 - improve client UX around account state and retry behavior
 - add one more focused verification path around the new account-state UX or retry behavior
 - only revisit proxy/network strategy if server-side Instagram comment fetch remains a required capability
+- use the new `/verify` step as the main boundary between "saved account" and "usable account"
+
+Concrete finish-plan reference:
+
+- [`docs/DELIVERY_PLAN_FINISH_FLOW.md`](C:/dev/giveaway_app/docs/DELIVERY_PLAN_FINISH_FLOW.md) is the current execution plan for finishing the account-based giveaway flow without drifting into unrelated work

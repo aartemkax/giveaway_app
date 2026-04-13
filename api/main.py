@@ -165,16 +165,134 @@ def _apply_client_profile(cl: Client, settings: dict, ua: str | None, log_label:
     logger.info("%s instagrapi profile ua=%s device_settings=%s", log_label, cl.user_agent, cl.device_settings)
     return prepared
 
-def _build_client_from_settings(settings: dict) -> Client:
-    cl = Client()
+def _build_client_from_settings(
+    settings: dict,
+    *,
+    proxy: str | None = None,
+    log_label: str = "session_status",
+) -> Client:
+    cl = Client(proxy=proxy)
     _apply_client_profile(
         cl,
         settings,
         settings.get("user_agent") or settings.get("device_agent"),
-        "session_status",
+        log_label,
     )
     cl.delay_range = [2, 5]
     return cl
+
+
+def _verify_affinity_account(account_id: str) -> tuple[dict, int]:
+    context = affinity_store.get_account_context(account_id)
+    if not context:
+        return {"error": "not_found", "detail": "account not found"}, 404
+
+    account = context["account"]
+    proxy = context["proxy"]
+    session_settings = dict(context["session_settings"] or {})
+    if not session_settings:
+        record = affinity_store.mark_account_result(
+            account_id,
+            status="unverified",
+            challenge_reason="verify_missing_session",
+            cooldown_until=None,
+        ) or account
+        return {
+            "error": "login_required",
+            "detail": "account session settings are missing",
+            "account_status": record.status,
+            "challenge_reason": record.challenge_reason,
+            "account": record.to_dict(),
+            "proxy": proxy.to_dict() if proxy else None,
+            "verified": False,
+        }, 401
+
+    try:
+        cl = _build_client_from_settings(
+            session_settings,
+            proxy=context["proxy_url"],
+            log_label=f"verify:{account_id}",
+        )
+        cl.get_timeline_feed()
+    except PleaseWaitFewMinutes:
+        cooldown_until = int(time.time()) + 15 * 60
+        record = affinity_store.mark_account_result(
+            account_id,
+            status="cooldown",
+            challenge_reason="verify_rate_limited",
+            cooldown_until=cooldown_until,
+        ) or account
+        return {
+            "error": "rate_limited",
+            "detail": "instagram asked to wait before the next verification attempt",
+            "account_status": record.status,
+            "challenge_reason": record.challenge_reason,
+            "cooldown_until": record.cooldown_until,
+            "account": record.to_dict(),
+            "proxy": proxy.to_dict() if proxy else None,
+            "verified": False,
+        }, 429
+    except (ChallengeRequired, ChallengeUnknownStep, RequestsJSONDecodeError, ClientJSONDecodeError):
+        record = affinity_store.mark_account_result(
+            account_id,
+            status="challenge",
+            challenge_reason="verify_session_challenge",
+            cooldown_until=None,
+        ) or account
+        return {
+            "error": "instagram_challenge",
+            "detail": "instagram challenge/checkpoint during session verification",
+            "account_status": record.status,
+            "challenge_reason": record.challenge_reason,
+            "account": record.to_dict(),
+            "proxy": proxy.to_dict() if proxy else None,
+            "verified": False,
+        }, 412
+    except LoginRequired:
+        record = affinity_store.mark_account_result(
+            account_id,
+            status="unverified",
+            challenge_reason="verify_session_invalid",
+            cooldown_until=None,
+        ) or account
+        return {
+            "error": "login_required",
+            "detail": "instagram session is no longer valid",
+            "account_status": record.status,
+            "challenge_reason": record.challenge_reason,
+            "account": record.to_dict(),
+            "proxy": proxy.to_dict() if proxy else None,
+            "verified": False,
+        }, 401
+    except Exception as exc:
+        logger.exception("account verification failed for %s", account_id)
+        record = affinity_store.mark_account_result(
+            account_id,
+            status="unverified",
+            challenge_reason="verify_internal_error",
+            cooldown_until=None,
+        ) or account
+        return {
+            "error": "internal_error",
+            "detail": str(exc),
+            "account_status": record.status,
+            "challenge_reason": record.challenge_reason,
+            "account": record.to_dict(),
+            "proxy": proxy.to_dict() if proxy else None,
+            "verified": False,
+        }, 500
+
+    record = affinity_store.mark_account_result(
+        account_id,
+        status="active",
+        challenge_reason=None,
+        cooldown_until=None,
+    ) or account
+    return {
+        "verified": True,
+        "account": record.to_dict(),
+        "proxy": proxy.to_dict() if proxy else None,
+    }, 200
 
 def _normalize_permalink(url: str) -> str | None:
     if not url:
@@ -577,6 +695,15 @@ def admin_sync_account_session(account_id):
     )
     return jsonify({"account": record.to_dict()}), 200
 
+
+@app.route("/api/admin/accounts/<account_id>/verify", methods=["POST", "OPTIONS"])
+def admin_verify_account(account_id):
+    if request.method == "OPTIONS":
+        return "", 204
+
+    payload, status = _verify_affinity_account(account_id)
+    return jsonify(payload), status
+
 @app.route("/api/admin/accounts/<account_id>/fetch_participants_async", methods=["POST", "OPTIONS"])
 def admin_account_fetch_async(account_id):
     if request.method == "OPTIONS":
@@ -593,6 +720,14 @@ def admin_account_fetch_async(account_id):
             "account_status": record.status,
             "challenge_reason": record.challenge_reason,
         }), 412
+    if record.status == "unverified":
+        return jsonify({
+            "error": "login_required",
+            "detail": "account verification required before fetch",
+            "account_id": account_id,
+            "account_status": record.status,
+            "challenge_reason": record.challenge_reason,
+        }), 401
     if record.status == "cooldown" and record.cooldown_until and record.cooldown_until > int(time.time()):
         return jsonify({
             "error": "rate_limited",

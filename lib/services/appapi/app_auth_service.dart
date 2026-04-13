@@ -68,7 +68,23 @@ class AuthService {
       await prefs.setString('auth_method', 'ig_account');
       await prefs.setString('active_account_id', resolvedAccountId);
 
+      try {
+        await verifyAccount(resolvedAccountId);
+      } on ApiException {
+        // Verification is best-effort at onboarding time.
+        // The active account screen will show the resulting backend state.
+      }
+
       return resolvedAccountId;
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> verifyAccount(String accountId) async {
+    try {
+      final response = await _dio.post('/api/admin/accounts/$accountId/verify');
+      return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
     }

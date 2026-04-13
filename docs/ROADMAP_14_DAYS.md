@@ -237,11 +237,17 @@ So the current roadmap should not drift into new big features until this is hand
 2. Improve client UX around account challenge / retry state.
 3. Only after that, build the first skill.
 
+Follow-up execution plan:
+
+- once the UX and focused tests are in place, use [`docs/DELIVERY_PLAN_FINISH_FLOW.md`](C:/dev/giveaway_app/docs/DELIVERY_PLAN_FINISH_FLOW.md) as the concrete plan for finishing the account-based giveaway flow
+- that plan replaces vague next steps with a narrower finish target centered on account verification, challenge handling, and the final decision on server-side Instagram fetch viability
+
 Progress on item 2:
 
 - participants screen now shows backend-driven account-state banners for `challenge`, `cooldown`, and `unverified`
 - retry/draw action is blocked in the UI when the active account is already in a blocked state
-- next related step is a focused verification path for this new UI/state behavior
+- onboarding now performs an explicit account verification step after `from_sessionid`
+- next related step is to make the verification result more actionable and reduce wasted worker fetch attempts
 
 ## Definition Of Success For This Roadmap
 

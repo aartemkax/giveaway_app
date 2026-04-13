@@ -176,6 +176,47 @@ test.describe("staging admin api smoke", () => {
     });
   });
 
+  test("account verification returns not_found for unknown account", async ({
+    request,
+  }) => {
+    const response = await request.post(
+      `/api/admin/accounts/${makeAccountId("missing-verify")}/verify`,
+    );
+
+    expect(response.status()).toBe(404);
+    expect(await response.json()).toMatchObject({
+      error: "not_found",
+      detail: "account not found",
+    });
+  });
+
+  test("account-scoped fetch blocks unverified-state accounts before enqueue", async ({
+    request,
+  }) => {
+    const accountId = makeAccountId("acc-unverified");
+    await createAdminAccount(request, accountId, {
+      status: "unverified",
+      challenge_reason: "verify_session_invalid",
+    });
+
+    const response = await request.post(
+      `/api/admin/accounts/${accountId}/fetch_participants_async`,
+      {
+        data: {
+          post_url: testPostUrl,
+        },
+      },
+    );
+
+    expect(response.status()).toBe(401);
+    expect(await response.json()).toMatchObject({
+      error: "login_required",
+      account_id: accountId,
+      account_status: "unverified",
+      challenge_reason: "verify_session_invalid",
+    });
+  });
+
   test("account-scoped fetch blocks challenge-state accounts before enqueue", async ({
     request,
   }) => {
