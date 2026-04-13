@@ -56,9 +56,13 @@ import '../../widgets/unique_by_switch.dart';
 
 class ParticipantsScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChanged;
+  final ParticipantsService? participantsService;
+  final bool showDecorations;
 
   const ParticipantsScreen({
     required this.onLocaleChanged,
+    this.participantsService,
+    this.showDecorations = true,
     super.key,
   });
 
@@ -76,7 +80,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   final TextEditingController _countCtrl = TextEditingController(text: '1');
 
   // Сервіс взаємодії з бекендом
-  final ParticipantsService _participantsService = ParticipantsService();
+  late final ParticipantsService _participantsService =
+      widget.participantsService ?? ParticipantsService();
 
   // Стан UI
   bool _loading = false;
@@ -207,12 +212,14 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         children: [
           // Фоновий контент
           Container(
-            decoration: BoxDecoration(
-              image: DecorationImage(
-                image: AssetImage(AssetPaths.homeBackground),
-                fit: BoxFit.cover,
-              ),
-            ),
+            decoration: widget.showDecorations
+                ? BoxDecoration(
+                    image: DecorationImage(
+                      image: AssetImage(AssetPaths.homeBackground),
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                : null,
             child: SafeArea(
               child: Column(
                 children: [

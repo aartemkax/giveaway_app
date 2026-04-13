@@ -147,6 +147,11 @@ Remaining work:
 - run and document `flutter analyze`
 - add at least one focused unit or widget test if practical
 
+Progress since the initial plan:
+
+- focused widget tests now cover blocked account-state UX on the participants screen
+- the new tests verify both disabled draw action and banner-driven navigation back to login
+
 ### Day 10. Add release checklist
 
 Status:

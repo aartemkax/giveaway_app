@@ -192,6 +192,8 @@ Covered areas:
 - challenge-state account blocking before enqueue
 - enqueuing account-scoped async jobs
 - polling `job_status` / `job_result`
+- Flutter widget coverage for blocked account banner behavior on the participants screen
+- Flutter widget coverage for navigating back to `/login` from blocked account state
 
 Current testing limitation:
 
