@@ -39,6 +39,9 @@ Current frontend behavior:
   - `ig_account`
 - environment visibility is built into the UI through an environment badge and debug screen
 - the debug screen route is `/debug_env`
+- participants screen now reads active account state from the backend
+- challenge, cooldown, and unverified account states are surfaced as a visible banner instead of only snackbars
+- the draw action is blocked in the UI when the active account is already known to be blocked
 
 Important frontend service flows:
 
@@ -54,6 +57,7 @@ Important frontend service flows:
   - starts async participant fetch
   - prefers `/api/admin/accounts/<account_id>/fetch_participants_async` when `active_account_id` exists
   - otherwise falls back to the legacy `/api/fetch_participants_async`
+  - can read active account state from `/api/admin/accounts/<account_id>`
 - [`lib/screens/instagram_login_webview.dart`](C:/dev/giveaway_app/lib/screens/instagram_login_webview.dart)
   - extracts `sessionid` from Instagram WebView cookies
   - sends it to `/api/admin/accounts/from_sessionid`
@@ -207,7 +211,7 @@ Current stage of the recent account-affinity milestone:
   - canonical summary and docs policy were added
 - In progress:
   - migration from legacy session-based flows to `account_id`-based flows
-  - UI/UX around account status and retries
+  - full cleanup of old session-based client paths
 - Blocked:
   - real server-side Instagram media/comment fetch still hits challenge/checkpoint behavior
 
@@ -229,6 +233,7 @@ This means:
 - the queue/import issues have already been resolved
 - the remaining blocker is not job scheduling, but Instagram rejecting server-side access context during media/comment fetch
 - the repository code is being updated to describe that blocker more honestly in account/API state
+- the Flutter client now reflects blocked account states before retrying draw/fetch actions
 
 ## Known Risks And Constraints
 
@@ -257,5 +262,5 @@ This means:
 If work continues from the current state, the next productive area is not the old login endpoint itself, but the account-scoped worker failure mode:
 
 - improve client UX around account state and retry behavior
-- add one more focused verification path around challenge/account-state behavior
+- add one more focused verification path around the new account-state UX or retry behavior
 - only revisit proxy/network strategy if server-side Instagram comment fetch remains a required capability

@@ -81,9 +81,11 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   // Стан UI
   bool _loading = false;
   bool _showCelebration = false;
+  bool _accountStateLoading = true;
 
   // Поточний список переможців (результат для відмальовки)
   List<Participant> _participants = [];
+  ActiveAccountState? _activeAccountState;
 
   // Перемикач унікальності
   UniqueBy _uniqueBy = UniqueBy.user;
@@ -91,6 +93,12 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   // Додаткові вузли фокусу (для UX на мобільних)
   final FocusNode _urlFocus = FocusNode();
   final FocusNode _countFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActiveAccountState();
+  }
 
   @override
   void dispose() {
@@ -107,6 +115,10 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
   Future<void> _refreshAndChoose() async {
     final loc = AppLocalizations.of(context)!;
+    if (_activeAccountState?.isBlocked == true) {
+      _showSnack(_buildAccountStateMessage(loc, _activeAccountState!));
+      return;
+    }
 
     // Валідація кількості переможців
     final n = _validateAndParseWinnersCount(_countCtrl.text);
@@ -164,6 +176,9 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     } on ApiException catch (e) {
       // Мапінг відомих кодів помилок у локалізовані повідомлення
       final msg = _mapApiErrorToMessage(e, loc);
+      if (_shouldRefreshAccountState(e.code)) {
+        await _loadActiveAccountState();
+      }
 
       // Якщо сесія прострочена — ведемо на /login
       if (e.code == 'login_required' || e.code == 'invalid_credentials') {
@@ -203,6 +218,10 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                 children: [
                   _buildHeader(loc),
                   const SizedBox(height: 16),
+                  _buildAccountStateBanner(loc),
+                  if (_accountStateLoading ||
+                      _activeAccountState?.isBlocked == true)
+                    const SizedBox(height: 12),
                   _buildForm(loc),
                   const SizedBox(height: 20),
                   _buildResults(loc),
@@ -266,6 +285,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   // ──────────────────────────────────────────────────────────────────────────
 
   Widget _buildForm(AppLocalizations loc) {
+    final isBlocked = _activeAccountState?.isBlocked == true;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -315,7 +335,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
           // Кнопка запуску жеребку
           ElevatedButton.icon(
-            onPressed: _loading ? null : _refreshAndChoose,
+            onPressed: (_loading || isBlocked) ? null : _refreshAndChoose,
             icon: _loading
                 ? const SizedBox(
                     width: 16,
@@ -336,6 +356,117 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   // ──────────────────────────────────────────────────────────────────────────
   // BUILD: RESULTS GRID
   // ──────────────────────────────────────────────────────────────────────────
+
+  Widget _buildAccountStateBanner(AppLocalizations loc) {
+    if (_accountStateLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16),
+        child: LinearProgressIndicator(minHeight: 3),
+      );
+    }
+
+    final state = _activeAccountState;
+    if (state == null || !state.isBlocked) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = Theme.of(context);
+    final isChallenge = state.status == 'challenge';
+    final isCooldown = state.status == 'cooldown';
+    final color = isChallenge
+        ? Colors.orange.shade900
+        : isCooldown
+            ? Colors.orange.shade700
+            : Colors.blueGrey.shade700;
+
+    final title = isChallenge
+        ? _textByLocale(
+            uk: 'Акаунт потребує підтвердження в Instagram',
+            fallback:
+                'This account needs additional verification in Instagram',
+          )
+        : isCooldown
+            ? _textByLocale(
+                uk: 'Акаунт тимчасово охолоджується',
+                fallback: 'This account is temporarily cooling down',
+              )
+            : _textByLocale(
+                uk: 'Акаунт потрібно оновити',
+                fallback: 'This account needs to be refreshed',
+              );
+
+    final primaryActionLabel = isCooldown
+        ? _textByLocale(uk: 'Оновити статус', fallback: 'Refresh status')
+        : _textByLocale(uk: 'Перейти до входу', fallback: 'Go to login');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Card(
+        color: color,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _buildAccountStateMessage(loc, state),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.white,
+                ),
+              ),
+              if (state.instagramUsername.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  state.instagramUsername,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.white70,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonal(
+                    onPressed: isCooldown
+                        ? _loadActiveAccountState
+                        : () => Navigator.of(context)
+                            .pushReplacementNamed('/login'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: color,
+                    ),
+                    child: Text(primaryActionLabel),
+                  ),
+                  TextButton(
+                    onPressed: _loadActiveAccountState,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                    ),
+                    child: Text(
+                      _textByLocale(
+                        uk: 'Перевірити ще раз',
+                        fallback: 'Check again',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildResults(AppLocalizations loc) {
     return Expanded(
@@ -482,6 +613,93 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   //    final key = '${p.username.trim().toLowerCase()}#${p.commentId}';
   //
   // Тимчасово режими comment/both поводяться як по username.
+
+  Future<void> _loadActiveAccountState() async {
+    if (mounted) {
+      setState(() => _accountStateLoading = true);
+    }
+
+    final state = await _participantsService.getActiveAccountState();
+    if (!mounted) return;
+    setState(() {
+      _activeAccountState = state;
+      _accountStateLoading = false;
+    });
+  }
+
+  bool _shouldRefreshAccountState(String code) {
+    switch (code) {
+      case 'instagram_challenge':
+      case 'sessionid_challenge':
+      case 'login_required':
+      case 'rate_limited':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  String _buildAccountStateMessage(
+    AppLocalizations loc,
+    ActiveAccountState state,
+  ) {
+    switch (state.status) {
+      case 'challenge':
+        return _textByLocale(
+          uk:
+              'Instagram заблокував серверне читання поста для цього акаунта. Щоб продовжити, потрібно знову пройти авторизацію або підтвердити акаунт в Instagram.',
+          fallback:
+              'Instagram blocked server-side access for this account. To continue, log in again or complete verification in Instagram.',
+        );
+      case 'cooldown':
+        return _buildCooldownMessage(state);
+      case 'unverified':
+        return _textByLocale(
+          uk:
+              'Сесія цього акаунта більше не підтверджена. Потрібно заново авторизуватися перед новою спробою.',
+          fallback:
+              'This account session is no longer verified. Please log in again before retrying.',
+        );
+      default:
+        return loc.error_unknown;
+    }
+  }
+
+  String _buildCooldownMessage(ActiveAccountState state) {
+    final cooldownUntil = state.cooldownUntil;
+    if (cooldownUntil == null) {
+      return _textByLocale(
+        uk:
+            'Instagram тимчасово обмежив запити для цього акаунта. Зачекайте і спробуйте пізніше.',
+        fallback:
+            'Instagram temporarily limited requests for this account. Please wait and try again later.',
+      );
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final diffSec = cooldownUntil - now;
+    if (diffSec <= 0) {
+      return _textByLocale(
+        uk:
+            'Охолодження вже мало завершитися. Оновіть статус і спробуйте ще раз.',
+        fallback:
+            'The cooldown should already be over. Refresh the status and try again.',
+      );
+    }
+
+    final mins = (diffSec / 60).ceil();
+    return _textByLocale(
+      uk:
+          'Instagram тимчасово обмежив запити для цього акаунта. Спробуйте ще раз приблизно через $mins хв.',
+      fallback:
+          'Instagram temporarily limited requests for this account. Try again in about $mins minute(s).',
+    );
+  }
+
+  String _textByLocale({required String uk, required String fallback}) {
+    final languageCode = Localizations.localeOf(context).languageCode;
+    return languageCode == 'uk' ? uk : fallback;
+  }
 
   List<Participant> _applyUniqueness(List<Participant> items, UniqueBy mode) {
     switch (mode) {

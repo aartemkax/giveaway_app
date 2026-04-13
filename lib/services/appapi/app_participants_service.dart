@@ -9,12 +9,71 @@ import 'package:giveaway_app/utils/constants.dart';
 import '../../models/participant.dart';
 import '../../utils/api_exception.dart';
 
+class ActiveAccountState {
+  final String accountId;
+  final String instagramUsername;
+  final String status;
+  final String? challengeReason;
+  final int? cooldownUntil;
+
+  const ActiveAccountState({
+    required this.accountId,
+    required this.instagramUsername,
+    required this.status,
+    this.challengeReason,
+    this.cooldownUntil,
+  });
+
+  bool get isBlocked =>
+      status == 'challenge' || status == 'cooldown' || status == 'unverified';
+}
+
 class ParticipantsService {
   final Dio _dio;
 
   ParticipantsService() : _dio = ApiClient().dio;
 
   ParticipantsService.withDio(this._dio);
+
+  Future<ActiveAccountState?> getActiveAccountState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final activeAccountId =
+          (prefs.getString('active_account_id') ?? '').trim();
+      if (activeAccountId.isEmpty) return null;
+
+      final response = await _dio.get('/api/admin/accounts/$activeAccountId');
+      if (response.statusCode != 200 || response.data is! Map) {
+        return null;
+      }
+
+      final payload = Map<String, dynamic>.from(response.data as Map);
+      if (payload['account'] is! Map) return null;
+      final account = Map<String, dynamic>.from(payload['account'] as Map);
+
+      final cooldownUntilRaw = account['cooldown_until'];
+      int? cooldownUntil;
+      if (cooldownUntilRaw is int) {
+        cooldownUntil = cooldownUntilRaw;
+      } else if (cooldownUntilRaw is String) {
+        cooldownUntil = int.tryParse(cooldownUntilRaw);
+      }
+
+      return ActiveAccountState(
+        accountId: (account['account_id'] ?? activeAccountId).toString(),
+        instagramUsername: (account['instagram_username'] ?? '').toString(),
+        status: (account['status'] ?? 'active').toString(),
+        challengeReason: account['challenge_reason'] as String?,
+        cooldownUntil: cooldownUntil,
+      );
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('active_account_id');
+      }
+      return null;
+    }
+  }
 
   Future<List<Participant>> fetchParticipants(
     String postUrl, {
@@ -97,7 +156,7 @@ class ParticipantsService {
         final m = res.data as Map;
         final code = (m['error'] as String?) ?? 'server_error';
         final detail = m['detail'] as String?;
-        throw ApiException(code, detail: detail);
+        throw ApiException(code, detail: detail, status: res.statusCode);
       }
 
       throw ApiException(

@@ -232,6 +232,12 @@ So the current roadmap should not drift into new big features until this is hand
 2. Improve client UX around account challenge / retry state.
 3. Only after that, build the first skill.
 
+Progress on item 2:
+
+- participants screen now shows backend-driven account-state banners for `challenge`, `cooldown`, and `unverified`
+- retry/draw action is blocked in the UI when the active account is already in a blocked state
+- next related step is a focused verification path for this new UI/state behavior
+
 ## Definition Of Success For This Roadmap
 
 This roadmap is considered complete when:
