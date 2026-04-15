@@ -55,6 +55,19 @@ Important fields:
 - `challenge_reason`
 - `cooldown_until`
 - `instagram_username`
+- `proxy_id`
+
+### 3. Bound proxy record
+
+If verification fails before reaching Instagram, inspect the bound proxy:
+
+```powershell
+Invoke-RestMethod -Uri "$base/api/admin/accounts/<account_id>" -Method Get
+```
+
+The nested `proxy` object should not point at `127.0.0.1` in shared staging.
+
+If it does, the account was bound to a leftover smoke-test proxy. Deactivate localhost proxy records and bind a real sticky/residential proxy before retrying verification.
 
 ## Expected Status Meanings
 
@@ -143,6 +156,16 @@ POST /api/admin/accounts/<account_id>/verify
 412 instagram_challenge
 challenge_reason = verify_session_challenge
 ```
+
+### Wrong staging proxy assigned
+
+```text
+ProxyError
+HTTPSConnection(host='127.0.0.1', port=...)
+Connection refused
+```
+
+This is not an Instagram challenge. It means staging auto-assigned a local test proxy. Clean the proxy pool first, then retry verification.
 
 ### Worker-side media fetch challenge
 

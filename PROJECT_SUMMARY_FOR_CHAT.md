@@ -134,6 +134,13 @@ Current guarantees from this layer:
 - account lock support to prevent concurrent worker execution
 - account context restoration for background jobs
 
+Operational proxy hygiene:
+
+- staging currently supports a real sticky residential proxy record for the test Instagram account
+- Playwright smoke tests must not leave localhost/test proxies active in shared staging
+- active `127.0.0.1` proxy records in Railway staging can break real account verification by being auto-assigned to new accounts
+- if `/verify` fails with `ProxyError` against `127.0.0.1`, deactivate the test proxies and bind a real sticky proxy before retrying
+
 What `from_sessionid` actually does:
 
 - accepts raw `sessionid` plus `deviceInfo.settings`

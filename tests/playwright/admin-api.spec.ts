@@ -73,6 +73,47 @@ async function createAccountFromSessionId(
   return response;
 }
 
+async function createAdminProxy(
+  request: any,
+  proxy: {
+    proxy_id: string;
+    proxy_url: string;
+    region: string;
+    proxy_type: string;
+    status?: string;
+  },
+) {
+  const response = await request.post("/api/admin/proxies", {
+    data: {
+      status: "active",
+      ...proxy,
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  return response;
+}
+
+async function deactivateAdminProxy(
+  request: any,
+  proxy: {
+    proxy_id: string;
+    proxy_url: string;
+    region: string;
+    proxy_type: string;
+  },
+) {
+  const response = await request.post("/api/admin/proxies", {
+    data: {
+      ...proxy,
+      status: "inactive",
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  return response;
+}
+
 async function waitForJobToFinish(request: any, jobId: string) {
   const deadline = Date.now() + 45_000;
 
@@ -281,61 +322,59 @@ test.describe("staging admin api smoke", () => {
     const stickyRegion = makeAccountId("ua-sticky-region");
     const firstProxyId = makeAccountId("pxy-ua-a");
     const secondProxyId = makeAccountId("pxy-ua-b");
+    const firstProxy = {
+      proxy_id: firstProxyId,
+      proxy_url: "http://127.0.0.1:18081",
+      region: stickyRegion,
+      proxy_type: "sticky",
+    };
+    const secondProxy = {
+      proxy_id: secondProxyId,
+      proxy_url: "http://127.0.0.1:18082",
+      region: stickyRegion,
+      proxy_type: "sticky",
+    };
 
-    const firstProxy = await request.post("/api/admin/proxies", {
-      data: {
-        proxy_id: firstProxyId,
-        proxy_url: "http://127.0.0.1:18081",
-        region: stickyRegion,
-        proxy_type: "sticky",
-        status: "active",
-      },
-    });
-    expect(firstProxy.ok()).toBeTruthy();
+    try {
+      await createAdminProxy(request, firstProxy);
+      await createAdminProxy(request, secondProxy);
 
-    const secondProxy = await request.post("/api/admin/proxies", {
-      data: {
-        proxy_id: secondProxyId,
-        proxy_url: "http://127.0.0.1:18082",
-        region: stickyRegion,
-        proxy_type: "sticky",
-        status: "active",
-      },
-    });
-    expect(secondProxy.ok()).toBeTruthy();
+      const onboarding = await createAccountFromSessionId(request, accountId, {
+        preferred_proxy_region: stickyRegion,
+      });
+      expect(await onboarding.json()).toMatchObject({
+        source: "sessionid",
+        account: {
+          account_id: accountId,
+          proxy_id: firstProxyId,
+        },
+        proxy: {
+          proxy_id: firstProxyId,
+          assigned_account_id: accountId,
+        },
+        proxy_assignment: "auto",
+      });
 
-    const onboarding = await createAccountFromSessionId(request, accountId, {
-      preferred_proxy_region: stickyRegion,
-    });
-    expect(await onboarding.json()).toMatchObject({
-      source: "sessionid",
-      account: {
-        account_id: accountId,
-        proxy_id: firstProxyId,
-      },
-      proxy: {
-        proxy_id: firstProxyId,
-        assigned_account_id: accountId,
-      },
-      proxy_assignment: "auto",
-    });
-
-    const repeatedOnboarding = await createAccountFromSessionId(request, accountId, {
-      instagram_username: "session_bound_smoke_again",
-      preferred_proxy_region: stickyRegion,
-    });
-    expect(await repeatedOnboarding.json()).toMatchObject({
-      source: "sessionid",
-      account: {
-        account_id: accountId,
-        proxy_id: firstProxyId,
-      },
-      proxy: {
-        proxy_id: firstProxyId,
-        assigned_account_id: accountId,
-      },
-      proxy_assignment: "auto",
-    });
+      const repeatedOnboarding = await createAccountFromSessionId(request, accountId, {
+        instagram_username: "session_bound_smoke_again",
+        preferred_proxy_region: stickyRegion,
+      });
+      expect(await repeatedOnboarding.json()).toMatchObject({
+        source: "sessionid",
+        account: {
+          account_id: accountId,
+          proxy_id: firstProxyId,
+        },
+        proxy: {
+          proxy_id: firstProxyId,
+          assigned_account_id: accountId,
+        },
+        proxy_assignment: "auto",
+      });
+    } finally {
+      await deactivateAdminProxy(request, firstProxy);
+      await deactivateAdminProxy(request, secondProxy);
+    }
   });
 
   test("can create proxy, account, bind them, and enqueue account-scoped job", async ({
@@ -343,79 +382,80 @@ test.describe("staging admin api smoke", () => {
   }) => {
     const proxyId = makeAccountId("pxy");
     const accountId = makeAccountId("acc");
+    const proxy = {
+      proxy_id: proxyId,
+      proxy_url: "http://127.0.0.1:18080",
+      region: "UA",
+      proxy_type: "test",
+    };
 
-    const proxyCreate = await request.post("/api/admin/proxies", {
-      data: {
-        proxy_id: proxyId,
-        proxy_url: "http://127.0.0.1:18080",
-        region: "UA",
-        proxy_type: "test",
-        status: "active",
-      },
-    });
-    expect(proxyCreate.ok()).toBeTruthy();
-    expect(await proxyCreate.json()).toMatchObject({
-      proxy: {
-        proxy_id: proxyId,
-        proxy_url: "http://127.0.0.1:18080",
-        region: "UA",
-        proxy_type: "test",
-        status: "active",
-      },
-    });
-
-    const accountCreate = await createAdminAccount(request, accountId);
-    expect(await accountCreate.json()).toMatchObject({
-      account: {
-        account_id: accountId,
-        instagram_username: "smoke_account",
-        status: "active",
-      },
-      proxy: null,
-    });
-
-    const bindProxy = await request.post(`/api/admin/accounts/${accountId}/bind_proxy`, {
-      data: {
-        proxy_id: proxyId,
-      },
-    });
-    expect(bindProxy.ok()).toBeTruthy();
-    expect(await bindProxy.json()).toMatchObject({
-      account: {
-        account_id: accountId,
-        proxy_id: proxyId,
-      },
-      proxy: {
-        proxy_id: proxyId,
-        assigned_account_id: accountId,
-      },
-    });
-
-    const accountView = await request.get(`/api/admin/accounts/${accountId}`);
-    expect(accountView.ok()).toBeTruthy();
-    expect(await accountView.json()).toMatchObject({
-      account: {
-        account_id: accountId,
-        proxy_id: proxyId,
-      },
-      proxy: {
-        proxy_id: proxyId,
-      },
-    });
-
-    const enqueue = await request.post(
-      `/api/admin/accounts/${accountId}/fetch_participants_async`,
-      {
-        data: {
-          post_url: testPostUrl,
+    try {
+      const proxyCreate = await createAdminProxy(request, proxy);
+      expect(await proxyCreate.json()).toMatchObject({
+        proxy: {
+          proxy_id: proxyId,
+          proxy_url: "http://127.0.0.1:18080",
+          region: "UA",
+          proxy_type: "test",
+          status: "active",
         },
-      },
-    );
-    expect(enqueue.status()).toBe(202);
-    expect(await enqueue.json()).toMatchObject({
-      account_id: accountId,
-      job_id: expect.any(String),
-    });
+      });
+
+      const accountCreate = await createAdminAccount(request, accountId);
+      expect(await accountCreate.json()).toMatchObject({
+        account: {
+          account_id: accountId,
+          instagram_username: "smoke_account",
+          status: "active",
+        },
+        proxy: null,
+      });
+
+      const bindProxy = await request.post(`/api/admin/accounts/${accountId}/bind_proxy`, {
+        data: {
+          proxy_id: proxyId,
+        },
+      });
+      expect(bindProxy.ok()).toBeTruthy();
+      expect(await bindProxy.json()).toMatchObject({
+        account: {
+          account_id: accountId,
+          proxy_id: proxyId,
+        },
+        proxy: {
+          proxy_id: proxyId,
+          assigned_account_id: accountId,
+        },
+      });
+
+      const accountView = await request.get(`/api/admin/accounts/${accountId}`);
+      expect(accountView.ok()).toBeTruthy();
+      expect(await accountView.json()).toMatchObject({
+        account: {
+          account_id: accountId,
+          proxy_id: proxyId,
+        },
+        proxy: {
+          proxy_id: proxyId,
+        },
+      });
+
+      const enqueue = await request.post(
+        `/api/admin/accounts/${accountId}/fetch_participants_async`,
+        {
+          data: {
+            post_url: testPostUrl,
+          },
+        },
+      );
+      expect(enqueue.status()).toBe(202);
+      expect(await enqueue.json()).toMatchObject({
+        account_id: accountId,
+        job_id: expect.any(String),
+      });
+    } finally {
+      await deactivateAdminProxy(request, proxy);
+    }
   });
 
   test("account-scoped async job reaches a terminal result endpoint", async ({ request }) => {
